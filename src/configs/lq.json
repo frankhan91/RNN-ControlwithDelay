@@ -1,0 +1,25 @@
+{
+  "eqn_config": {
+    "eqn_name": "LQ",
+    "seed": 123,
+    "delta": 0.3,
+    "T": 1,
+    "nt": 40,
+    "lambd": 0.1,
+    "dim_x": 3,
+    "dim_pi": 3,
+    "dim_w": 4
+  },
+  "net_config": {
+    "n_lag_state": 0,
+    "num_hiddens": [30, 30, 30],
+    "lr_values": [1e-3, 1e-3],
+    "lr_boundaries": [2000],
+    "num_iterations": 8000,
+    "batch_size": 128,
+    "valid_size": 256,
+    "logging_frequency": 200,
+    "dtype": "float64",
+    "verbose": "True"
+  }
+}
