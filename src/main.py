@@ -33,7 +33,7 @@ def main(argv):
     tf.keras.backend.set_floatx(config.net_config.dtype)
 
     logging.info('Begin to solve %s ' % config.eqn_config.eqn_name)
-    x_sample, reward, value = eqn.simulate_true(1000)
+    x_sample, reward, value = eqn.simulate_true(4096)
     logging.info('Value in continuous time: %.4e, reward with analytic policy: %.4e' % (value[-1], np.mean(reward)))
 
     sol = solver.LQSolver(config, eqn)

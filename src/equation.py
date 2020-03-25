@@ -21,12 +21,12 @@ class LQ(object):
         # self.n_lag = self.delta // self.dt
         # assert self.n_lag * self.dt == self.delta, "The time discretization is inconsistent."
         
-        self.A1 = np.identity(self.dim_x) / 10 * 0
-        self.A3 = np.identity(self.dim_x) * 1
-        self.Q = np.identity(self.dim_x) / self.dim_x
+        self.A1 = np.identity(self.dim_x) * 0.5
+        self.A3 = np.identity(self.dim_x) * 5
+        self.Q = np.identity(self.dim_x) / self.dim_x / 10
+        self.R = np.identity(self.dim_pi) / self.dim_pi / 10
+        self.G = np.identity(self.dim_x) / self.dim_x / 10
         self.B = np.random.normal(size=(self.dim_x, self.dim_pi), scale=1)
-        self.R = np.identity(self.dim_pi)
-        self.G = np.identity(self.dim_x) / self.dim_x
         self.sigma = np.random.normal(size=(self.dim_x, self.dim_w), scale=1)
         # self.x_init = np.random.normal(size=(self.dim_x, 1)) * -np.arange(self.n_lag+1) * self.dt  # of shape (dx, n_lag+1)
         self.x_init = 1 * np.arange(1, self.dim_x+1)[:, None] * -np.arange(self.n_lag+1) * self.dt  # of shape (dx, n_lag+1)
@@ -65,8 +65,12 @@ class LQ(object):
             np.random.seed(int(time.time()))
         return dw_sample, x_hist, wgt_x_hist
         
-    def simulate_true(self, num_sample):
+    def simulate_true(self, num_sample, fixseed=False):
+        if fixseed:
+            np.random.seed(seed=self.eqn_config.seed)
         dw_sample = normal.rvs(size=[num_sample, self.dim_w, self.nt]) * self.sqrt_dt
+        if fixseed:
+            np.random.seed(int(time.time()))
         x_sample = np.zeros([num_sample, self.dim_x, self.nt+1])
         x_sample[:, :, 0] = self.x_init[:, -1]
         y_sample = np.zeros_like(x_sample)
@@ -86,6 +90,7 @@ class LQ(object):
             y_sample[..., t] = (np.sum(wgt_x_hist, axis=-1) - 0.5*(wgt_x_hist[..., 0] + wgt_x_hist[..., -1])) * self.dt
             x_common = x_sample[..., t] + self.exp_fac * y_sample[..., t] @ self.A3
             pi = - x_common @ (self.Rinv @ self.B.transpose() @ self.Pt[t]).transpose()
+            # print(pi[0])
             inst_r = np.sum((x_common @ self.Q) * x_common, axis=-1) + np.sum((pi @ self.R) * pi, axis=-1)
             if t == 0:
                 reward += inst_r * self.dt / 2
