@@ -102,10 +102,59 @@ class LQ(object):
                 reward += np.sum((x_common @ self.G) * x_common, axis=-1)
             else:
                 reward += inst_r * self.dt
-            
+
             if t < self.nt:
                 dx = (x_sample[..., t] @ self.A1.transpose() + y_sample[..., t] @ self.A2.transpose() \
                   + zeta @ self.A3.transpose() + pi @ self.B.transpose())
                 x_sample[..., t+1] = x_sample[..., t] + dx * self.dt + dw_sample[..., t] @ self.sigma.transpose()
-        
+
         return x_sample, reward, value
+
+    def simulate(self, num_sample, policy, fixseed=False):
+        if fixseed:
+            np.random.seed(seed=self.eqn_config.seed)
+        dw_sample = normal.rvs(size=[num_sample, self.dim_w, self.nt]) * self.sqrt_dt
+        if fixseed:
+            np.random.seed(int(time.time()))
+        x_sample = np.zeros([num_sample, self.dim_x, self.nt+1])
+        x_sample[:, :, 0] = self.x_init[:, -1]
+        pi_sample = np.zeros([num_sample, self.dim_pi, self.nt+1])
+        y_sample = np.zeros_like(x_sample)
+        reward = np.zeros([num_sample])
+
+        for t in range(self.nt+1):
+            if t == 0:
+                x_hist = np.repeat(self.x_init[None, :, :], [num_sample], axis=0) # of shape (B, dx, n_lag+1)
+                wgt_x_hist = np.repeat(self.wgt_x_init[None, :, :], [num_sample], axis=0)  # of shape (B, dx, n_lag+1)
+            else:
+                x_hist[:, :, :-1] = x_hist[:, :, 1:]
+                x_hist[:, :, -1] = x_sample[:, :, t]
+                wgt_x_hist[:, :, :-1] = wgt_x_hist[:, :, 1:] * self.exp_array[-2]
+                wgt_x_hist[:, :, -1] = x_sample[:, :, t]
+            zeta = x_hist[:, :, 0]
+            y_sample[..., t] = (np.sum(wgt_x_hist, axis=-1) - 0.5*(wgt_x_hist[..., 0] + wgt_x_hist[..., -1])) * self.dt
+            x_common = x_sample[..., t] + self.exp_fac * y_sample[..., t] @ self.A3
+            pi_sample[..., t] = policy(t, x_hist, wgt_x_hist)
+            pi = pi_sample[..., t]
+            inst_r = np.sum((x_common @ self.Q) * x_common, axis=-1) + np.sum((pi @ self.R) * pi, axis=-1)
+            if t == 0:
+                reward += inst_r * self.dt / 2
+                Psum = np.sum(self.Pt, axis=0) - self.Pt[0]/2 - self.Pt[-1]/2
+            elif t == self.nt:
+                reward += inst_r * self.dt / 2
+                reward += np.sum((x_common @ self.G) * x_common, axis=-1)
+            else:
+                reward += inst_r * self.dt
+
+            if t < self.nt:
+                dx = (x_sample[..., t] @ self.A1.transpose() + y_sample[..., t] @ self.A2.transpose() \
+                  + zeta @ self.A3.transpose() + pi @ self.B.transpose())
+                x_sample[..., t+1] = x_sample[..., t] + dx * self.dt + dw_sample[..., t] @ self.sigma.transpose()
+
+        return x_sample, pi_sample, reward
+
+    def true_policy(self, t, x_hist, wgt_x_hist=None):
+        y_sample = (np.sum(wgt_x_hist, axis=-1) - 0.5*(wgt_x_hist[..., 0] + wgt_x_hist[..., -1])) * self.dt
+        x_common = x_hist[..., -1] + self.exp_fac * y_sample @ self.A3
+        pi = - x_common @ (self.Rinv @ self.B.transpose() @ self.Pt[t]).transpose()
+        return pi

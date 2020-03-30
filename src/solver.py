@@ -102,6 +102,15 @@ class NonsharedModel(tf.keras.Model):
         
         return reward
 
+    def policy(self, t, x_hist, wgt_x_hist=None):
+        if t == 0:
+            return self.pi_init.numpy()
+        else:
+            state = x_hist[:, :, -(self.n_lag_state+1):]
+            state = tf.reshape(state, [state.shape[0], -1])
+            pi = self.subnet[t-1](state, training=False)
+        return pi
+
 
 class FeedForwardSubNet(tf.keras.Model):
     def __init__(self, config):

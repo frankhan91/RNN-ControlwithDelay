@@ -39,5 +39,18 @@ def main(argv):
     sol = solver.LQSolver(config, eqn)
     sol.train()
 
+    x_sample, pi_sample, reward = eqn.simulate(100, eqn.true_policy, fixseed=True)
+    xhat_sample, pihat_sample, reward_hat = eqn.simulate(100, sol.model.policy, fixseed=True)
+
+    print(reward[:10])
+    print(reward_hat[:10])
+
+    np.savez(
+        file=os.path.join('../data/', 'siml_path.npz'),
+        x_sample=x_sample, pi_sample=pi_sample, reward=reward,
+        xhat_sample=xhat_sample, pihat_sample=pihat_sample, reward_hat=reward_hat
+    )
+
+
 if __name__ == '__main__':
     app.run(main)
