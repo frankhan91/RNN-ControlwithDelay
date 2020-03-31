@@ -21,7 +21,7 @@ class LQSolver(object):
         start_time = time.time()
         training_history = []
         valid_data = self.eqn.sample(self.net_config.valid_size, fixseed=True)
-        _, reward, _ = self.eqn.simulate_true(self.net_config.valid_size, fixseed=True)
+        _, _, reward = self.eqn.simulate(self.net_config.valid_size, self.eqn.true_policy, fixseed=True)
         logging.info('Reward of valid data with analytic policy: %.4e' % (np.mean(reward)))
 
         # begin sgd iteration
