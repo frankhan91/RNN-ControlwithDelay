@@ -11,8 +11,8 @@
     "dim_w": 3
   },
   "net_config": {
-    "n_lag_state": 0,
-    "num_hiddens": [30, 30, 30],
+    "model_name": "LSTMModel",
+    "dim_h": 30,
     "lr_values": [5e-3, 1e-3],
     "lr_boundaries": [8000],
     "num_iterations": 16000,

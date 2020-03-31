@@ -1,3 +1,4 @@
+import sys
 import logging
 import time
 import numpy as np
@@ -11,7 +12,7 @@ class LQSolver(object):
         self.net_config = config.net_config
         self.eqn = eqn
 
-        self.model = NonsharedModel(config, eqn)
+        self.model = getattr(sys.modules[__name__], self.net_config.model_name)(config, eqn)
         lr_schedule = tf.keras.optimizers.schedules.PiecewiseConstantDecay(
             self.net_config.lr_boundaries, self.net_config.lr_values)
         self.optimizer = tf.keras.optimizers.Adam(learning_rate=lr_schedule, epsilon=1e-8)
@@ -54,9 +55,9 @@ class LQSolver(object):
         self.optimizer.apply_gradients(zip(grad, self.model.trainable_variables))
 
 
-class NonsharedModel(tf.keras.Model):
+class NonsharedFFModel(tf.keras.Model):
     def __init__(self, config, eqn):
-        super(NonsharedModel, self).__init__()
+        super(NonsharedFFModel, self).__init__()
         self.eqn_config = config.eqn_config
         self.net_config = config.net_config
         self.eqn = eqn
@@ -112,6 +113,60 @@ class NonsharedModel(tf.keras.Model):
         return pi
 
 
+class LSTMModel(tf.keras.Model):
+    def __init__(self, config, eqn):
+        super(LSTMModel, self).__init__()
+        self.eqn_config = config.eqn_config
+        self.net_config = config.net_config
+        self.eqn = eqn
+        self.h_init = tf.Variable(
+            np.random.uniform(
+                low=0,
+                high=0,
+                size=[1, self.net_config.dim_h])
+        )
+        self.C_init = tf.Variable(
+            np.random.uniform(
+                low=0,
+                high=0,
+                size=[1, self.net_config.dim_h])
+        )
+        self.lstm = LSTMCell(config)
+
+    def call(self, inputs, training):
+        dw_sample, x_hist, wgt_x_hist = inputs
+        all_one_vec = tf.ones(shape=tf.stack([tf.shape(dw_sample)[0], 1]), dtype=self.net_config.dtype)
+        h = tf.matmul(all_one_vec, self.h_init)
+        C = tf.matmul(all_one_vec, self.C_init)
+        x = x_hist[:, :, -1] # of shape (B, dx)
+
+
+        for t in range(self.eqn.nt+1):
+            if t > 0:
+                x_hist = tf.concat([x_hist[:, :, 1:], x[:, :, None]], axis=-1)
+                wgt_x_hist = tf.concat([wgt_x_hist[:, :, 1:] * self.eqn.exp_array[-2], x[:, :, None]], axis=-1)
+            zeta = x_hist[:, :, 0]
+            y = (tf.reduce_sum(wgt_x_hist, axis=-1) - 0.5*(wgt_x_hist[..., 0] + wgt_x_hist[..., -1])) * self.eqn.dt
+            x_common = x + self.eqn.exp_fac * y @ self.eqn.A3
+
+            pi, h, C = self.lstm(t*self.eqn.dt*all_one_vec, x, h, C)
+            inst_r = tf.reduce_sum((x_common @ self.eqn.Q) * x_common, axis=-1) + tf.reduce_sum((pi @ self.eqn.R) * pi, axis=-1)
+            if t == 0:
+                reward = inst_r * self.eqn.dt / 2
+            elif t == self.eqn.nt:
+                reward += inst_r * self.eqn.dt / 2
+                reward += tf.reduce_sum((x_common @ self.eqn.G) * x_common, axis=-1)
+            else:
+                reward += inst_r * self.eqn.dt
+
+            if t < self.eqn.nt:
+                dx = (x @ self.eqn.A1.transpose() + y @ self.eqn.A2.transpose() \
+                  + zeta @ self.eqn.A3.transpose() + pi @ self.eqn.B.transpose())
+                x = x + dx * self.eqn.dt + dw_sample[..., t] @ self.eqn.sigma.transpose()
+
+        return reward
+
+
 class FeedForwardSubNet(tf.keras.Model):
     def __init__(self, config):
         super(FeedForwardSubNet, self).__init__()
@@ -142,3 +197,26 @@ class FeedForwardSubNet(tf.keras.Model):
         x = self.dense_layers[-1](x)
         x = self.bn_layers[-1](x, training)
         return x
+
+
+class LSTMCell(tf.keras.Model):
+    def __init__(self, config):
+        super(LSTMCell, self).__init__()
+        dim_pi = config.eqn_config.dim_pi
+        dim_h = config.net_config.dim_h
+        self.f_layer = tf.keras.layers.Dense(dim_h, activation='sigmoid')
+        self.i_layer = tf.keras.layers.Dense(dim_h, activation='sigmoid')
+        self.o_layer = tf.keras.layers.Dense(dim_h, activation='sigmoid')
+        self.C_layer = tf.keras.layers.Dense(dim_h, activation='tanh')
+        self.pi_layer = tf.keras.layers.Dense(dim_pi, activation=None)
+
+    def call(self, t, x, h_prev, C_prev):
+        z = tf.concat([x, h_prev, t], axis=1)
+        f = self.f_layer(z)
+        i = self.i_layer(z)
+        o = self.o_layer(z)
+        C_bar = self.C_layer(z)
+        C = C_prev * f + C_bar * i
+        h = o * tf.nn.tanh(C)
+        pi = self.pi_layer(h)
+        return pi, h, C
