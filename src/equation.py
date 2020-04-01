@@ -72,7 +72,7 @@ class LQ(object):
             np.random.seed(int(time.time()))
         return dw_sample, x_hist, wgt_x_hist
         
-    def simulate(self, num_sample, policy, fixseed=False):
+    def simulate(self, num_sample, policy, fixseed=False, hidden_init=None):
         if fixseed:
             np.random.seed(seed=self.eqn_config.seed)
         dw_sample = normal.rvs(size=[num_sample, self.dim_w, self.nt]) * self.sqrt_dt
@@ -83,6 +83,7 @@ class LQ(object):
         pi_sample = np.zeros([num_sample, self.dim_pi, self.nt+1])
         y_sample = np.zeros_like(x_sample)
         reward = np.zeros([num_sample])
+        hidden = hidden_init # used for LSTM model only
 
         for t in range(self.nt+1):
             if t == 0:
@@ -96,7 +97,7 @@ class LQ(object):
             zeta = x_hist[:, :, 0]
             y_sample[..., t] = (np.sum(wgt_x_hist, axis=-1) - 0.5*(wgt_x_hist[..., 0] + wgt_x_hist[..., -1])) * self.dt
             x_common = x_sample[..., t] + self.exp_fac * y_sample[..., t] @ self.A3
-            pi_sample[..., t] = policy(t, x_hist, wgt_x_hist)
+            pi_sample[..., t], hidden = policy(t, x_hist, wgt_x_hist, hidden)
             pi = pi_sample[..., t]
             inst_r = np.sum((x_common @ self.Q) * x_common, axis=-1) + np.sum((pi @ self.R) * pi, axis=-1)
             if t == 0:
@@ -114,8 +115,8 @@ class LQ(object):
 
         return x_sample, pi_sample, reward
 
-    def true_policy(self, t, x_hist, wgt_x_hist=None):
+    def true_policy(self, t, x_hist, wgt_x_hist, hidden=None):
         y_sample = (np.sum(wgt_x_hist, axis=-1) - 0.5*(wgt_x_hist[..., 0] + wgt_x_hist[..., -1])) * self.dt
         x_common = x_hist[..., -1] + self.exp_fac * y_sample @ self.A3
         pi = - x_common @ (self.Rinv @ self.B.transpose() @ self.Pt[t]).transpose()
-        return pi
+        return pi, None

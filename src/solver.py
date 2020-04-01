@@ -70,6 +70,10 @@ class NonsharedFFModel(tf.keras.Model):
         )
         self.subnet = [FeedForwardSubNet(config) for _ in range(self.eqn.nt)]
 
+    # be compatiable with LSTM
+    def hidden_init(self, num_sample):
+        return None
+
     def call(self, inputs, training):
         dw_sample, x_hist, wgt_x_hist = inputs
         x = x_hist[:, :, -1] # of shape (B, dx)
@@ -103,14 +107,14 @@ class NonsharedFFModel(tf.keras.Model):
         
         return reward
 
-    def policy(self, t, x_hist, wgt_x_hist=None):
+    def policy(self, t, x_hist, wgt_x_hist=None, hidden=None):
         if t == 0:
-            return self.pi_init.numpy()
+            return self.pi_init.numpy(), None
         else:
             state = x_hist[:, :, -(self.n_lag_state+1):]
             state = tf.reshape(state, [state.shape[0], -1])
             pi = self.subnet[t-1](state, training=False)
-        return pi
+        return pi, None
 
 
 class LSTMModel(tf.keras.Model):
@@ -133,13 +137,19 @@ class LSTMModel(tf.keras.Model):
         )
         self.lstm = LSTMCell(config)
 
+    def hidden_init(self, num_sample):
+        return (
+            np.broadcast_to(self.h_init.numpy(), [num_sample, self.net_config.dim_h]),
+            np.broadcast_to(self.C_init.numpy(), [num_sample, self.net_config.dim_h])
+        )
+
     def call(self, inputs, training):
         dw_sample, x_hist, wgt_x_hist = inputs
         all_one_vec = tf.ones(shape=tf.stack([tf.shape(dw_sample)[0], 1]), dtype=self.net_config.dtype)
         h = tf.matmul(all_one_vec, self.h_init)
         C = tf.matmul(all_one_vec, self.C_init)
+        hidden = (h, C)
         x = x_hist[:, :, -1] # of shape (B, dx)
-
 
         for t in range(self.eqn.nt+1):
             if t > 0:
@@ -149,7 +159,7 @@ class LSTMModel(tf.keras.Model):
             y = (tf.reduce_sum(wgt_x_hist, axis=-1) - 0.5*(wgt_x_hist[..., 0] + wgt_x_hist[..., -1])) * self.eqn.dt
             x_common = x + self.eqn.exp_fac * y @ self.eqn.A3
 
-            pi, h, C = self.lstm(t*self.eqn.dt*all_one_vec, x, h, C)
+            pi, hidden = self.lstm(t*self.eqn.dt*all_one_vec, x, hidden)
             inst_r = tf.reduce_sum((x_common @ self.eqn.Q) * x_common, axis=-1) + tf.reduce_sum((pi @ self.eqn.R) * pi, axis=-1)
             if t == 0:
                 reward = inst_r * self.eqn.dt / 2
@@ -165,6 +175,11 @@ class LSTMModel(tf.keras.Model):
                 x = x + dx * self.eqn.dt + dw_sample[..., t] @ self.eqn.sigma.transpose()
 
         return reward
+
+    def policy(self, t, x_hist, wgt_x_hist=None, hidden=None):
+        t = np.broadcast_to(t*self.eqn.dt, [x_hist.shape[0], 1])
+        pi, hidden = self.lstm(t, x_hist[..., -1], hidden)
+        return pi, hidden
 
 
 class FeedForwardSubNet(tf.keras.Model):
@@ -210,7 +225,8 @@ class LSTMCell(tf.keras.Model):
         self.C_layer = tf.keras.layers.Dense(dim_h, activation='tanh')
         self.pi_layer = tf.keras.layers.Dense(dim_pi, activation=None)
 
-    def call(self, t, x, h_prev, C_prev):
+    def call(self, t, x, hidden_prev):
+        h_prev, C_prev = hidden_prev
         z = tf.concat([x, h_prev, t], axis=1)
         f = self.f_layer(z)
         i = self.i_layer(z)
@@ -219,4 +235,4 @@ class LSTMCell(tf.keras.Model):
         C = C_prev * f + C_bar * i
         h = o * tf.nn.tanh(C)
         pi = self.pi_layer(h)
-        return pi, h, C
+        return pi, (h, C)

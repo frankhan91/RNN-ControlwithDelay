@@ -39,8 +39,12 @@ def main(argv):
     sol = solver.LQSolver(config, eqn)
     sol.train()
 
-    x_sample, pi_sample, reward = eqn.simulate(100, eqn.true_policy, fixseed=True)
-    xhat_sample, pihat_sample, reward_hat = eqn.simulate(100, sol.model.policy, fixseed=True)
+    n_save = 100
+    x_sample, pi_sample, reward = eqn.simulate(n_save, eqn.true_policy, fixseed=True)
+    xhat_sample, pihat_sample, reward_hat = eqn.simulate(
+        n_save, sol.model.policy,
+        fixseed=True, hidden_init=sol.model.hidden_init(n_save)
+    )
 
     print(reward[:10])
     print(reward_hat[:10])
