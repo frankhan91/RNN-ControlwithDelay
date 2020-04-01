@@ -5,14 +5,16 @@ import numpy as np
 import tensorflow as tf
 
 
-class LQSolver(object):
+class Solver(object):
     """The fully connected neural network model."""
     def __init__(self, config, eqn):
         self.eqn_config = config.eqn_config
         self.net_config = config.net_config
         self.eqn = eqn
 
-        self.model = getattr(sys.modules[__name__], self.net_config.model_name)(config, eqn)
+        self.model = getattr(
+            sys.modules[__name__],
+            self.eqn_config.eqn_name + self.net_config.model_name)(config, eqn)
         lr_schedule = tf.keras.optimizers.schedules.PiecewiseConstantDecay(
             self.net_config.lr_boundaries, self.net_config.lr_values)
         self.optimizer = tf.keras.optimizers.Adam(learning_rate=lr_schedule, epsilon=1e-8)
@@ -53,6 +55,130 @@ class LQSolver(object):
     def train_step(self, train_data):
         grad = self.grad(train_data, training=True)
         self.optimizer.apply_gradients(zip(grad, self.model.trainable_variables))
+
+
+class LQPolicyModel(tf.keras.Model):
+    def __init__(self, config, eqn):
+        super(LQPolicyModel, self).__init__()
+        self.eqn_config = config.eqn_config
+        self.net_config = config.net_config
+        self.eqn = eqn
+
+    def call(self, inputs, training):
+        dw_sample, x_hist, wgt_x_hist = inputs
+        x = x_hist[:, :, -1] # of shape (B, dx)
+        hidden = self.hidden_init_tf(tf.shape(dw_sample)[0])
+
+        for t in range(self.eqn.nt+1):
+            if t > 0:
+                x_hist = tf.concat([x_hist[:, :, 1:], x[:, :, None]], axis=-1)
+                wgt_x_hist = tf.concat([wgt_x_hist[:, :, 1:] * self.eqn.exp_array[-2], x[:, :, None]], axis=-1)
+            zeta = x_hist[:, :, 0]
+            y = (tf.reduce_sum(wgt_x_hist, axis=-1) - 0.5*(wgt_x_hist[..., 0] + wgt_x_hist[..., -1])) * self.eqn.dt
+            x_common = x + self.eqn.exp_fac * y @ self.eqn.A3
+            pi, hidden = self.policy_tf(training, t, x_hist, hidden)
+            inst_r = tf.reduce_sum((x_common @ self.eqn.Q) * x_common, axis=-1) + tf.reduce_sum((pi @ self.eqn.R) * pi, axis=-1)
+            if t == 0:
+                reward = inst_r * self.eqn.dt / 2
+            elif t == self.eqn.nt:
+                reward += inst_r * self.eqn.dt / 2
+                reward += tf.reduce_sum((x_common @ self.eqn.G) * x_common, axis=-1)
+            else:
+                reward += inst_r * self.eqn.dt
+
+            if t < self.eqn.nt:
+                dx = (x @ self.eqn.A1.transpose() + y @ self.eqn.A2.transpose() \
+                  + zeta @ self.eqn.A3.transpose() + pi @ self.eqn.B.transpose())
+                x = x + dx * self.eqn.dt + dw_sample[..., t] @ self.eqn.sigma.transpose()
+
+        return reward
+
+    def hidden_init_tf(self, num_sample):
+        raise NotImplementedError
+
+    def hidden_init(self, num_sample):
+        raise NotImplementedError
+
+    def policy_tf(self, training, t, x_hist, hidden=None):
+        raise NotImplementedError
+
+    def policy(self, t, x_hist, wgt_x_hist=None, hidden=None):
+        raise NotImplementedError
+
+
+class LQNonsharedFFModel(LQPolicyModel):
+    def __init__(self, config, eqn):
+        super(LQNonsharedFFModel, self).__init__(config, eqn)
+        self.n_lag_state = config.net_config.n_lag_state
+        self.pi_init = tf.Variable(
+            np.random.uniform(
+                low=0,
+                high=0,
+                size=[1, self.eqn.dim_pi])
+        )
+        self.subnet = [FeedForwardSubNet(config) for _ in range(self.eqn.nt)]
+
+    def hidden_init_tf(self, num_sample):
+        return None
+
+    def hidden_init(self, num_sample):
+        return None
+
+    def policy_tf(self, training, t, x_hist, hidden=None):
+        if t == 0:
+            return self.pi_init, None
+        else:
+            state = x_hist[:, :, -(self.n_lag_state+1):]
+            state = tf.reshape(state, [state.shape[0], -1])
+            pi = self.subnet[t-1](state, training)
+        return pi, None
+
+    def policy(self, t, x_hist, wgt_x_hist=None, hidden=None):
+        if t == 0:
+            return self.pi_init.numpy(), None
+        else:
+            state = x_hist[:, :, -(self.n_lag_state+1):]
+            state = tf.reshape(state, [state.shape[0], -1])
+            pi = self.subnet[t-1](state, training=False)
+        return pi, None
+
+
+class LQLSTMModel(LQPolicyModel):
+    def __init__(self, config, eqn):
+        super(LQLSTMModel, self).__init__(config, eqn)
+        self.h_init = tf.Variable(
+            np.random.uniform(
+                low=0,
+                high=0,
+                size=[1, self.net_config.dim_h])
+        )
+        self.C_init = tf.Variable(
+            np.random.uniform(
+                low=0,
+                high=0,
+                size=[1, self.net_config.dim_h])
+        )
+        self.lstm = LSTMCell(config)
+
+    def hidden_init_tf(self, num_sample):
+        self.all_one_vec = tf.ones(shape=tf.stack([num_sample, 1]), dtype=self.net_config.dtype)
+        h = tf.matmul(self.all_one_vec, self.h_init)
+        C = tf.matmul(self.all_one_vec, self.C_init)
+        return (h, C)
+
+    def hidden_init(self, num_sample):
+        return (
+            np.broadcast_to(self.h_init.numpy(), [num_sample, self.net_config.dim_h]),
+            np.broadcast_to(self.C_init.numpy(), [num_sample, self.net_config.dim_h])
+        )
+
+    def policy_tf(self, training, t, x_hist, hidden=None):
+        return self.lstm(t*self.eqn.dt*self.all_one_vec, x_hist[..., -1], hidden)
+
+    def policy(self, t, x_hist, wgt_x_hist=None, hidden=None):
+        t = np.broadcast_to(t*self.eqn.dt, [x_hist.shape[0], 1])
+        pi, hidden = self.lstm(t, x_hist[..., -1], hidden)
+        return pi, hidden
 
 
 class NonsharedFFModel(tf.keras.Model):

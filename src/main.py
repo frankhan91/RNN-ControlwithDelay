@@ -9,8 +9,8 @@ from absl import logging as absl_logging
 import numpy as np
 import tensorflow as tf
 
-import solver
 import equation
+from solver import Solver
 
 
 flags.DEFINE_string('config_path', 'configs/lq_ff.json',
@@ -36,7 +36,7 @@ def main(argv):
     x_sample, _, reward = eqn.simulate(4096, eqn.true_policy)
     logging.info('Value in continuous time: %.4e, reward with analytic policy: %.4e' % (eqn.value, np.mean(reward)))
 
-    sol = solver.LQSolver(config, eqn)
+    sol = Solver(config, eqn)
     sol.train()
 
     n_save = 100
