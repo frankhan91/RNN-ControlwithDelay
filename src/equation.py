@@ -140,7 +140,7 @@ class Csmp(object):
         self.sqrt_dt = np.sqrt(self.dt)
         self.n_lag = int(np.round(self.delta/self.dt))
 
-        self.x_init = 2 + 20 * np.arange(self.n_lag+1) * self.dt  # of shape (n_lag+1,)
+        self.x_init = 1 + 10 * np.arange(self.n_lag+1) * self.dt  # of shape (n_lag+1,)
 
         self.util_fn = lambda x: x**self.gamma / self.gamma
         self.exp_fac = np.exp(self.lambd * self.delta)

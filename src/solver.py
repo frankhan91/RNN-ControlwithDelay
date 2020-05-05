@@ -215,11 +215,7 @@ class CsmpPolicyModel(tf.keras.Model):
 
             dx = self.eqn.drift_coeff*(self.eqn.drift_coeff+self.eqn.lambd) * y + self.eqn.mu * x_common \
                 + self.eqn.a * zeta - pi
-            # x = x + dx * self.eqn.dt + self.eqn.sigma * x_common * dw_sample[:, t]
-            if t < self.eqn.nt:
-                x = x + dx * self.eqn.dt + self.eqn.sigma * x_common * dw_sample[:, t]
-            else:
-                x = x + dx * self.eqn.dt
+            x = x + dx * self.eqn.dt + self.eqn.sigma * x_common * dw_sample[:, t]
         # penalty on x
         reward -= tf.nn.relu(-x)*self.net_config.util_penalty
         return -reward
