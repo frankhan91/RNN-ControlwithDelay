@@ -13,7 +13,7 @@ import equation
 from solver import Solver
 
 
-flags.DEFINE_string('config_path', 'configs/lq_ff.json',
+flags.DEFINE_string('config_path', 'configs/csmp_lstm.json',
                     """The path to load json file.""")
 flags.DEFINE_string('exp_name', 'test',
                     """The name of numerical experiments, prefix for logging""")
@@ -46,11 +46,12 @@ def main(argv):
         fixseed=True, hidden_init=sol.model.hidden_init(n_save)
     )
 
+    print(reward.mean(), reward_hat.mean())
     print(reward[:10])
     print(reward_hat[:10])
 
     np.savez(
-        file=os.path.join('../data/', 'siml_path.npz'),
+        file=os.path.join('../data/csmp', 'siml_path.npz'),
         x_sample=x_sample, pi_sample=pi_sample, reward=reward,
         xhat_sample=xhat_sample, pihat_sample=pihat_sample, reward_hat=reward_hat
     )

@@ -14,7 +14,7 @@ class LQ(object):
         self.dim_x = eqn_config.dim_x
         self.dim_pi = eqn_config.dim_pi
         self.dim_w = eqn_config.dim_w
-        
+
         self.dt = self.T / self.nt
         self.sqrt_dt = np.sqrt(self.dt)
         self.n_lag = int(np.round(self.delta/self.dt))
@@ -119,4 +119,108 @@ class LQ(object):
         y_sample = (np.sum(wgt_x_hist, axis=-1) - 0.5*(wgt_x_hist[..., 0] + wgt_x_hist[..., -1])) * self.dt
         x_common = x_hist[..., -1] + self.exp_fac * y_sample @ self.A3
         pi = - x_common @ (self.Rinv @ self.B.transpose() @ self.Pt[t]).transpose()
+        return pi, None
+
+
+class Csmp(object):
+    def __init__(self, eqn_config):
+        self.eqn_config = eqn_config
+        self.delta = eqn_config.delta
+        self.T = eqn_config.T
+        self.nt = eqn_config.nt
+        self.lambd = eqn_config.lambd
+        self.beta = eqn_config.beta
+        self.gamma = eqn_config.gamma
+        self.a = eqn_config.a
+        self.mu = eqn_config.mu
+        self.sigma = eqn_config.sigma
+        self.dim_pi = eqn_config.dim_pi
+
+        self.dt = self.T / self.nt
+        self.sqrt_dt = np.sqrt(self.dt)
+        self.n_lag = int(np.round(self.delta/self.dt))
+
+        self.x_init = 2 + 20 * np.arange(self.n_lag+1) * self.dt  # of shape (n_lag+1,)
+
+        self.util_fn = lambda x: x**self.gamma / self.gamma
+        self.exp_fac = np.exp(self.lambd * self.delta)
+        self.drift_coeff = self.a * self.exp_fac
+        self.exp_array = np.exp(-np.arange(-self.n_lag, 1, 1) * self.dt * self.lambd)
+        self.wgt_x_init = self.exp_array * self.x_init # of shape (n_lag+1,)
+        self.pt = self.riccati_soln()
+        y_sample = (np.sum(self.wgt_x_init, axis=-1) - 0.5*(self.wgt_x_init[..., 0] + self.wgt_x_init[..., -1])) * self.dt
+        x_common = self.x_init[..., -1] + self.a * self.exp_fac * y_sample
+        self.value = self.pt[0]**(1-self.gamma) / self.gamma * x_common**(self.gamma)
+
+    def sample(self, num_sample, fixseed=False):
+        if fixseed:
+            np.random.seed(seed=self.eqn_config.seed)
+        dw_sample = normal.rvs(size=[num_sample, self.nt+1]) * self.sqrt_dt
+        x_hist = np.repeat(self.x_init[None, :], [num_sample], axis=0)
+        wgt_x_hist = np.repeat(self.wgt_x_init[None, :], [num_sample], axis=0)
+        if fixseed:
+            np.random.seed(int(time.time()))
+        return dw_sample, x_hist, wgt_x_hist
+
+    def simulate(self, num_sample, policy, fixseed=False, hidden_init=None):
+        if fixseed:
+            np.random.seed(seed=self.eqn_config.seed)
+        dw_sample = normal.rvs(size=[num_sample, self.nt]) * self.sqrt_dt
+        if fixseed:
+            np.random.seed(int(time.time()))
+        x_sample = np.zeros([num_sample, self.nt+1])
+        x_sample[:, 0] = self.x_init[-1]
+        pi_sample = np.zeros([num_sample, self.nt+1])
+        y_sample = np.zeros_like(x_sample)
+        reward = np.zeros([num_sample])
+        hidden = hidden_init # used for LSTM model only
+
+        for t in range(self.nt+1):
+            if t == 0:
+                x_hist = np.repeat(self.x_init[None, :], [num_sample], axis=0) # of shape (B, n_lag+1)
+                wgt_x_hist = np.repeat(self.wgt_x_init[None, :], [num_sample], axis=0)  # of shape (B, n_lag+1)
+            else:
+                x_hist[:, :-1] = x_hist[:, 1:]
+                x_hist[:, -1] = x_sample[:, t]
+                wgt_x_hist[:, :-1] = wgt_x_hist[:, 1:] * self.exp_array[-2]
+                wgt_x_hist[:, -1] = x_sample[:, t]
+            zeta = x_hist[:, 0]
+            y_sample[..., t] = (np.sum(wgt_x_hist, axis=-1) - 0.5*(wgt_x_hist[..., 0] + wgt_x_hist[..., -1])) * self.dt
+            x_common = x_sample[..., t] + self.a * self.exp_fac * y_sample[..., t]
+            pi, hidden = policy(t, x_hist, wgt_x_hist, hidden)
+            pi = np.maximum(pi, 0)
+            pi_sample[..., t] = pi
+            inst_r = self.util_fn(pi) * np.exp(-self.beta * t * self.dt)
+            if t == 0:
+                reward += inst_r * self.dt / 2
+            elif t == self.nt:
+                reward += inst_r * self.dt / 2
+                reward += self.util_fn(x_common)
+            else:
+                reward += inst_r * self.dt
+
+            if t < self.nt:
+                dx = self.drift_coeff*(self.drift_coeff+self.lambd) * y_sample[..., t] + self.mu * x_common \
+                    + self.a * zeta - pi
+                x_sample[..., t+1] = x_sample[..., t] + dx * self.dt + dw_sample[..., t] * self.sigma * x_common
+                if x_sample[..., t+1].min() < 0:
+                    print("Nagative x: {}".format(x_sample[..., t+1].min()))
+
+        return x_sample, pi_sample, reward
+
+    def riccati_soln(self):
+        def full_riccati(t, p):
+            coeff = 0.5*self.gamma*self.sigma**2 - self.gamma/(1-self.gamma)*(self.mu+self.a*self.exp_fac)
+            dp = np.exp(-self.beta*t/(1-self.gamma)) - coeff * p
+            return dp
+
+        sol = solve_ivp(full_riccati, [0, self.T], [1],
+                        t_eval=np.linspace(0, self.T, self.nt+1))
+        pt = np.flip(sol.y, axis=-1)[0] # of shape(nt+1)
+        return pt
+
+    def true_policy(self, t, x_hist, wgt_x_hist, hidden=None):
+        y_sample = (np.sum(wgt_x_hist, axis=-1) - 0.5*(wgt_x_hist[..., 0] + wgt_x_hist[..., -1])) * self.dt
+        x_common = x_hist[..., -1] + self.a * self.exp_fac * y_sample
+        pi = np.exp(-self.beta * t * self.dt/(1-self.gamma)) * x_common / self.pt[t]
         return pi, None

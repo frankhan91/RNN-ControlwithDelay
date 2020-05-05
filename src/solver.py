@@ -181,6 +181,154 @@ class LQLSTMModel(LQPolicyModel):
         return pi, hidden
 
 
+class CsmpPolicyModel(tf.keras.Model):
+    def __init__(self, config, eqn):
+        super(CsmpPolicyModel, self).__init__()
+        self.eqn_config = config.eqn_config
+        self.net_config = config.net_config
+        self.eqn = eqn
+        # self.zero = tf.constant(0.0, dtype=self.net_config.dtype)
+
+    def call(self, inputs, training):
+        dw_sample, x_hist, wgt_x_hist = inputs
+        x = x_hist[:, -1] # of shape (B,)
+        hidden = self.hidden_init_tf(tf.shape(dw_sample)[0])
+
+        for t in range(self.eqn.nt+1):
+            if t > 0:
+                x_hist = tf.concat([x_hist[:, 1:], x[:, None]], axis=-1)
+                wgt_x_hist = tf.concat([wgt_x_hist[:, 1:] * self.eqn.exp_array[-2], x[:, None]], axis=-1)
+            zeta = x_hist[:, 0]
+            y = (tf.reduce_sum(wgt_x_hist, axis=-1) - 0.5*(wgt_x_hist[:, 0] + wgt_x_hist[:, -1])) * self.eqn.dt
+            x_common = x + self.eqn.a * self.eqn.exp_fac * y
+            pi, hidden = self.policy_tf(training, t, x_hist, hidden)
+            inst_r = self.util_tf(pi) * np.exp(-self.eqn.beta * t * self.eqn.dt)
+            # penalty on x
+            inst_r -= tf.nn.relu(-x)*self.net_config.util_penalty
+            if t == 0:
+                reward = inst_r * self.eqn.dt / 2
+            elif t == self.eqn.nt:
+                reward += inst_r * self.eqn.dt / 2
+                reward += self.util_tf(x_common)
+            else:
+                reward += inst_r * self.eqn.dt
+
+            dx = self.eqn.drift_coeff*(self.eqn.drift_coeff+self.eqn.lambd) * y + self.eqn.mu * x_common \
+                + self.eqn.a * zeta - pi
+            # x = x + dx * self.eqn.dt + self.eqn.sigma * x_common * dw_sample[:, t]
+            if t < self.eqn.nt:
+                x = x + dx * self.eqn.dt + self.eqn.sigma * x_common * dw_sample[:, t]
+            else:
+                x = x + dx * self.eqn.dt
+        # penalty on x
+        reward -= tf.nn.relu(-x)*self.net_config.util_penalty
+        return -reward
+
+    def util_tf(self, pi):
+        return tf.pow(tf.nn.relu(pi)+1e-12, self.eqn_config.gamma)/self.eqn_config.gamma
+        # return tf.where(
+        #     tf.math.greater(pi, self.zero),
+        #     pi**self.eqn_config.gamma/self.eqn_config.gamma,
+        #     self.net_config.util_penalty*pi
+        # )
+
+    # def util_penalty_tf(self, pi):
+    #     pi_pos = tf.nn.relu(pi)
+    #     util = tf.pow(pi_pos+1e-12, self.eqn_config.gamma)/self.eqn_config.gamma
+    #     util += (-tf.math.sign(pi)+1)/2 * self.net_config.util_penalty * pi
+    #     return util
+
+    def hidden_init_tf(self, num_sample):
+        raise NotImplementedError
+
+    def hidden_init(self, num_sample):
+        raise NotImplementedError
+
+    def policy_tf(self, training, t, x_hist, hidden=None):
+        raise NotImplementedError
+
+    def policy(self, t, x_hist, wgt_x_hist=None, hidden=None):
+        raise NotImplementedError
+
+
+class CsmpNonsharedFFModel(CsmpPolicyModel):
+    def __init__(self, config, eqn):
+        super(CsmpNonsharedFFModel, self).__init__(config, eqn)
+        self.n_lag_state = config.net_config.n_lag_state
+        self.pi_init = tf.Variable(
+            np.random.uniform(
+                low=1.0,
+                high=1.0,
+                size=[1,])
+        )
+        self.subnet = [FeedForwardSubNet(config) for _ in range(self.eqn.nt)]
+
+    def hidden_init_tf(self, num_sample):
+        return None
+
+    def hidden_init(self, num_sample):
+        return None
+
+    def policy_tf(self, training, t, x_hist, hidden=None):
+        if t == 0:
+            return tf.nn.relu(self.pi_init), None
+        else:
+            state = x_hist[:, -(self.n_lag_state+1):]
+            state = tf.reshape(state, [state.shape[0], -1])
+            pi = tf.nn.relu(self.subnet[t-1](state, training)[:, 0])
+        return pi, None
+
+    def policy(self, t, x_hist, wgt_x_hist=None, hidden=None):
+        if t == 0:
+            return self.pi_init.numpy(), None
+        else:
+            state = x_hist[:, -(self.n_lag_state+1):]
+            state = tf.reshape(state, [state.shape[0], -1])
+            pi = tf.nn.relu(self.subnet[t-1](state, training=False)[:, 0])
+        return pi, None
+
+
+class CsmpLSTMModel(CsmpPolicyModel):
+    def __init__(self, config, eqn):
+        super(CsmpLSTMModel, self).__init__(config, eqn)
+        self.h_init = tf.Variable(
+            np.random.uniform(
+                low=0,
+                high=0,
+                size=[1, self.net_config.dim_h])
+        )
+        self.C_init = tf.Variable(
+            np.random.uniform(
+                low=0,
+                high=0,
+                size=[1, self.net_config.dim_h])
+        )
+        self.lstm = LSTMCell(config)
+
+    def hidden_init_tf(self, num_sample):
+        self.all_one_vec = tf.ones(shape=tf.stack([num_sample, 1]), dtype=self.net_config.dtype)
+        h = tf.matmul(self.all_one_vec, self.h_init)
+        C = tf.matmul(self.all_one_vec, self.C_init)
+        return (h, C)
+
+    def hidden_init(self, num_sample):
+        return (
+            np.broadcast_to(self.h_init.numpy(), [num_sample, self.net_config.dim_h]),
+            np.broadcast_to(self.C_init.numpy(), [num_sample, self.net_config.dim_h])
+        )
+
+    def policy_tf(self, training, t, x_hist, hidden=None):
+        pi, hidden = self.lstm(t*self.eqn.dt*self.all_one_vec, x_hist[:, -1:], hidden)
+        pi = tf.nn.relu(pi)[:, 0]
+        return pi, hidden
+
+    def policy(self, t, x_hist, wgt_x_hist=None, hidden=None):
+        t = np.broadcast_to(t*self.eqn.dt, [x_hist.shape[0], 1])
+        pi, hidden = self.lstm(t, x_hist[:, -1:], hidden)
+        pi = tf.nn.relu(pi)[:, 0]
+        return pi, hidden
+
+
 class FeedForwardSubNet(tf.keras.Model):
     def __init__(self, config):
         super(FeedForwardSubNet, self).__init__()
