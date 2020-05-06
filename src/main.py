@@ -50,8 +50,10 @@ def main(argv):
     print(reward[:10])
     print(reward_hat[:10])
 
+    prob, nn = ((FLAGS.config_path.split('.')[0]).split('/')[-1]).split('_')
+    lag = int(config.eqn_config.delta*10)
     np.savez(
-        file=os.path.join('../data/csmp', 'siml_path.npz'),
+        file=os.path.join('../data/{}'.format(prob), '{}_lag{}_test.npz'.format(nn, lag)),
         x_sample=x_sample, pi_sample=pi_sample, reward=reward,
         xhat_sample=xhat_sample, pihat_sample=pihat_sample, reward_hat=reward_hat
     )

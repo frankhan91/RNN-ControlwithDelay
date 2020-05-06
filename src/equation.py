@@ -170,11 +170,12 @@ class Csmp(object):
             np.random.seed(int(time.time()))
         x_sample = np.zeros([num_sample, self.nt+1])
         x_sample[:, 0] = self.x_init[-1]
-        pi_sample = np.zeros([num_sample, self.nt+1])
+        pi_sample = np.zeros([num_sample, self.nt])
         y_sample = np.zeros_like(x_sample)
         reward = np.zeros([num_sample])
         hidden = hidden_init # used for LSTM model only
 
+        reward = 0
         for t in range(self.nt+1):
             if t == 0:
                 x_hist = np.repeat(self.x_init[None, :], [num_sample], axis=0) # of shape (B, n_lag+1)
@@ -187,17 +188,14 @@ class Csmp(object):
             zeta = x_hist[:, 0]
             y_sample[..., t] = (np.sum(wgt_x_hist, axis=-1) - 0.5*(wgt_x_hist[..., 0] + wgt_x_hist[..., -1])) * self.dt
             x_common = x_sample[..., t] + self.a * self.exp_fac * y_sample[..., t]
-            pi, hidden = policy(t, x_hist, wgt_x_hist, hidden)
-            pi = np.maximum(pi, 0)
-            pi_sample[..., t] = pi
-            inst_r = self.util_fn(pi) * np.exp(-self.beta * t * self.dt)
-            if t == 0:
-                reward += inst_r * self.dt / 2
-            elif t == self.nt:
-                reward += inst_r * self.dt / 2
+            if t == self.nt:
                 reward += self.util_fn(x_common)
             else:
-                reward += inst_r * self.dt
+                pi, hidden = policy(t, x_hist, wgt_x_hist, hidden)
+                pi = np.maximum(pi, 0)
+                pi_sample[..., t] = pi
+                inst_r = self.util_fn(pi) * np.exp(-self.beta * t * self.dt)
+                reward = reward + inst_r * self.dt
 
             if t < self.nt:
                 dx = self.drift_coeff*(self.drift_coeff+self.lambd) * y_sample[..., t] + self.mu * x_common \

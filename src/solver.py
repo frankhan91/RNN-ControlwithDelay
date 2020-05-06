@@ -194,6 +194,7 @@ class CsmpPolicyModel(tf.keras.Model):
         x = x_hist[:, -1] # of shape (B,)
         hidden = self.hidden_init_tf(tf.shape(dw_sample)[0])
 
+        reward = 0
         for t in range(self.eqn.nt+1):
             if t > 0:
                 x_hist = tf.concat([x_hist[:, 1:], x[:, None]], axis=-1)
@@ -205,10 +206,7 @@ class CsmpPolicyModel(tf.keras.Model):
             inst_r = self.util_tf(pi) * np.exp(-self.eqn.beta * t * self.eqn.dt)
             # penalty on x
             inst_r -= tf.nn.relu(-x)*self.net_config.util_penalty
-            if t == 0:
-                reward = inst_r * self.eqn.dt / 2
-            elif t == self.eqn.nt:
-                reward += inst_r * self.eqn.dt / 2
+            if t == self.eqn.nt:
                 reward += self.util_tf(x_common)
             else:
                 reward += inst_r * self.eqn.dt

@@ -18,7 +18,7 @@
     "util_penalty": 1e7,
     "n_lag_state": 8,
     "num_hiddens": [30, 30, 30],
-    "lr_values": [2e-4, 2e-4],
+    "lr_values": [5e-4, 5e-4],
     "lr_boundaries": [8000],
     "num_iterations": 24000,
     "batch_size": 128,
