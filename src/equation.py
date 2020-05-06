@@ -80,11 +80,12 @@ class LQ(object):
             np.random.seed(int(time.time()))
         x_sample = np.zeros([num_sample, self.dim_x, self.nt+1])
         x_sample[:, :, 0] = self.x_init[:, -1]
-        pi_sample = np.zeros([num_sample, self.dim_pi, self.nt+1])
+        pi_sample = np.zeros([num_sample, self.dim_pi, self.nt])
         y_sample = np.zeros_like(x_sample)
         reward = np.zeros([num_sample])
         hidden = hidden_init # used for LSTM model only
 
+        reward = 0
         for t in range(self.nt+1):
             if t == 0:
                 x_hist = np.repeat(self.x_init[None, :, :], [num_sample], axis=0) # of shape (B, dx, n_lag+1)
@@ -97,16 +98,13 @@ class LQ(object):
             zeta = x_hist[:, :, 0]
             y_sample[..., t] = (np.sum(wgt_x_hist, axis=-1) - 0.5*(wgt_x_hist[..., 0] + wgt_x_hist[..., -1])) * self.dt
             x_common = x_sample[..., t] + self.exp_fac * y_sample[..., t] @ self.A3
-            pi_sample[..., t], hidden = policy(t, x_hist, wgt_x_hist, hidden)
-            pi = pi_sample[..., t]
-            inst_r = np.sum((x_common @ self.Q) * x_common, axis=-1) + np.sum((pi @ self.R) * pi, axis=-1)
-            if t == 0:
-                reward += inst_r * self.dt / 2
-            elif t == self.nt:
-                reward += inst_r * self.dt / 2
+            if t == self.nt:
                 reward += np.sum((x_common @ self.G) * x_common, axis=-1)
             else:
-                reward += inst_r * self.dt
+                pi, hidden = policy(t, x_hist, wgt_x_hist, hidden)
+                pi_sample[..., t] = pi
+                inst_r = np.sum((x_common @ self.Q) * x_common, axis=-1) + np.sum((pi @ self.R) * pi, axis=-1)
+                reward = reward + inst_r * self.dt
 
             if t < self.nt:
                 dx = (x_sample[..., t] @ self.A1.transpose() + y_sample[..., t] @ self.A2.transpose() \
@@ -155,7 +153,7 @@ class Csmp(object):
     def sample(self, num_sample, fixseed=False):
         if fixseed:
             np.random.seed(seed=self.eqn_config.seed)
-        dw_sample = normal.rvs(size=[num_sample, self.nt+1]) * self.sqrt_dt
+        dw_sample = normal.rvs(size=[num_sample, self.nt]) * self.sqrt_dt
         x_hist = np.repeat(self.x_init[None, :], [num_sample], axis=0)
         wgt_x_hist = np.repeat(self.wgt_x_init[None, :], [num_sample], axis=0)
         if fixseed:

@@ -12,7 +12,7 @@
   },
   "net_config": {
     "model_name": "NonsharedFFModel",
-    "n_lag_state": 0,
+    "n_lag_state": 8,
     "num_hiddens": [30, 30, 30],
     "lr_values": [5e-3, 1e-3],
     "lr_boundaries": [8000],

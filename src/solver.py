@@ -69,6 +69,7 @@ class LQPolicyModel(tf.keras.Model):
         x = x_hist[:, :, -1] # of shape (B, dx)
         hidden = self.hidden_init_tf(tf.shape(dw_sample)[0])
 
+        reward = 0
         for t in range(self.eqn.nt+1):
             if t > 0:
                 x_hist = tf.concat([x_hist[:, :, 1:], x[:, :, None]], axis=-1)
@@ -76,14 +77,11 @@ class LQPolicyModel(tf.keras.Model):
             zeta = x_hist[:, :, 0]
             y = (tf.reduce_sum(wgt_x_hist, axis=-1) - 0.5*(wgt_x_hist[..., 0] + wgt_x_hist[..., -1])) * self.eqn.dt
             x_common = x + self.eqn.exp_fac * y @ self.eqn.A3
-            pi, hidden = self.policy_tf(training, t, x_hist, hidden)
-            inst_r = tf.reduce_sum((x_common @ self.eqn.Q) * x_common, axis=-1) + tf.reduce_sum((pi @ self.eqn.R) * pi, axis=-1)
-            if t == 0:
-                reward = inst_r * self.eqn.dt / 2
-            elif t == self.eqn.nt:
-                reward += inst_r * self.eqn.dt / 2
+            if t == self.eqn.nt:
                 reward += tf.reduce_sum((x_common @ self.eqn.G) * x_common, axis=-1)
             else:
+                pi, hidden = self.policy_tf(training, t, x_hist, hidden)
+                inst_r = tf.reduce_sum((x_common @ self.eqn.Q) * x_common, axis=-1) + tf.reduce_sum((pi @ self.eqn.R) * pi, axis=-1)
                 reward += inst_r * self.eqn.dt
 
             if t < self.eqn.nt:
@@ -116,7 +114,7 @@ class LQNonsharedFFModel(LQPolicyModel):
                 high=0,
                 size=[1, self.eqn.dim_pi])
         )
-        self.subnet = [FeedForwardSubNet(config) for _ in range(self.eqn.nt)]
+        self.subnet = [FeedForwardSubNet(config) for _ in range(self.eqn.nt-1)]
 
     def hidden_init_tf(self, num_sample):
         return None
@@ -202,20 +200,21 @@ class CsmpPolicyModel(tf.keras.Model):
             zeta = x_hist[:, 0]
             y = (tf.reduce_sum(wgt_x_hist, axis=-1) - 0.5*(wgt_x_hist[:, 0] + wgt_x_hist[:, -1])) * self.eqn.dt
             x_common = x + self.eqn.a * self.eqn.exp_fac * y
-            pi, hidden = self.policy_tf(training, t, x_hist, hidden)
-            inst_r = self.util_tf(pi) * np.exp(-self.eqn.beta * t * self.eqn.dt)
-            # penalty on x
-            inst_r -= tf.nn.relu(-x)*self.net_config.util_penalty
             if t == self.eqn.nt:
                 reward += self.util_tf(x_common)
+                # penalty on x
+                reward -= tf.nn.relu(-x)*self.net_config.util_penalty
             else:
+                pi, hidden = self.policy_tf(training, t, x_hist, hidden)
+                inst_r = self.util_tf(pi) * np.exp(-self.eqn.beta * t * self.eqn.dt)
+                # penalty on x
+                inst_r -= tf.nn.relu(-x)*self.net_config.util_penalty
                 reward += inst_r * self.eqn.dt
 
-            dx = self.eqn.drift_coeff*(self.eqn.drift_coeff+self.eqn.lambd) * y + self.eqn.mu * x_common \
-                + self.eqn.a * zeta - pi
-            x = x + dx * self.eqn.dt + self.eqn.sigma * x_common * dw_sample[:, t]
-        # penalty on x
-        reward -= tf.nn.relu(-x)*self.net_config.util_penalty
+            if t < self.eqn.nt:
+                dx = self.eqn.drift_coeff*(self.eqn.drift_coeff+self.eqn.lambd) * y + self.eqn.mu * x_common \
+                    + self.eqn.a * zeta - pi
+                x = x + dx * self.eqn.dt + self.eqn.sigma * x_common * dw_sample[:, t]
         return -reward
 
     def util_tf(self, pi):
@@ -255,7 +254,7 @@ class CsmpNonsharedFFModel(CsmpPolicyModel):
                 high=1.0,
                 size=[1,])
         )
-        self.subnet = [FeedForwardSubNet(config) for _ in range(self.eqn.nt)]
+        self.subnet = [FeedForwardSubNet(config) for _ in range(self.eqn.nt-1)]
 
     def hidden_init_tf(self, num_sample):
         return None
