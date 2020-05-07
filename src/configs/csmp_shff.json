@@ -14,12 +14,13 @@
     "sigma": 0.5
   },
   "net_config": {
-    "model_name": "LSTMModel",
+    "model_name": "SharedFFModel",
     "util_penalty": 1e5,
-    "dim_h": 30,
-    "lr_values": [5e-4, 5e-4],
+    "n_lag_state": 24,
+    "num_hiddens": [48, 56, 64],
+    "lr_values": [1e-4, 1e-4],
     "lr_boundaries": [8000],
-    "num_iterations": 20000,
+    "num_iterations": 16000,
     "batch_size": 128,
     "valid_size": 256,
     "logging_frequency": 200,

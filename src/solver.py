@@ -114,7 +114,7 @@ class LQNonsharedFFModel(LQPolicyModel):
                 high=0,
                 size=[1, self.eqn.dim_pi])
         )
-        self.subnet = [FeedForwardSubNet(config) for _ in range(self.eqn.nt-1)]
+        self.subnet = [FeedForwardBNSubNet(config) for _ in range(self.eqn.nt-1)]
 
     def hidden_init_tf(self, num_sample):
         return None
@@ -254,7 +254,7 @@ class CsmpNonsharedFFModel(CsmpPolicyModel):
                 high=1.0,
                 size=[1,])
         )
-        self.subnet = [FeedForwardSubNet(config) for _ in range(self.eqn.nt-1)]
+        self.subnet = [FeedForwardBNSubNet(config) for _ in range(self.eqn.nt-1)]
 
     def hidden_init_tf(self, num_sample):
         return None
@@ -278,6 +278,53 @@ class CsmpNonsharedFFModel(CsmpPolicyModel):
             state = x_hist[:, -(self.n_lag_state+1):]
             state = tf.reshape(state, [state.shape[0], -1])
             pi = tf.nn.relu(self.subnet[t-1](state, training=False)[:, 0])
+        return pi, None
+
+
+class CsmpSharedFFModel(CsmpPolicyModel):
+    def __init__(self, config, eqn):
+        super(CsmpSharedFFModel, self).__init__(config, eqn)
+        self.n_lag_state = config.net_config.n_lag_state
+        self.pi_init = tf.Variable(
+            np.random.uniform(
+                low=1.0,
+                high=1.0,
+                size=[1,])
+        )
+        self.subnet = FeedForwardSubNet(config)
+
+    def hidden_init_tf(self, num_sample):
+        return None
+
+    def hidden_init(self, num_sample):
+        return None
+
+    def policy_tf(self, training, t, x_hist, hidden=None):
+        if t == 0:
+            return tf.nn.relu(self.pi_init), None
+        else:
+            state = x_hist[:, -(self.n_lag_state+1):]
+            state = tf.reshape(state, [state.shape[0], -1])
+            t = tf.broadcast_to(
+                tf.cast(t*self.eqn.dt, dtype=self.net_config.dtype),
+                shape=[state.shape[0], 1]
+            )
+            state = tf.concat([state, t], axis=-1)
+            pi = tf.nn.relu(self.subnet(state, training)[:, 0])
+        return pi, None
+
+    def policy(self, t, x_hist, wgt_x_hist=None, hidden=None):
+        if t == 0:
+            return self.pi_init.numpy(), None
+        else:
+            state = x_hist[:, -(self.n_lag_state+1):]
+            state = tf.reshape(state, [state.shape[0], -1])
+            t = tf.broadcast_to(
+                tf.cast(t*self.eqn.dt, dtype=self.net_config.dtype),
+                shape=[state.shape[0], 1]
+            )
+            state = tf.concat([state, t], axis=-1)
+            pi = tf.nn.relu(self.subnet(state, training=False)[:, 0])
         return pi, None
 
 
@@ -322,7 +369,7 @@ class CsmpLSTMModel(CsmpPolicyModel):
         return pi, hidden
 
 
-class FeedForwardSubNet(tf.keras.Model):
+class FeedForwardBNSubNet(tf.keras.Model):
     def __init__(self, config):
         super(FeedForwardSubNet, self).__init__()
         dim = config.eqn_config.dim_pi
@@ -351,6 +398,26 @@ class FeedForwardSubNet(tf.keras.Model):
             x = tf.nn.relu(x)
         x = self.dense_layers[-1](x)
         x = self.bn_layers[-1](x, training)
+        return x
+
+
+class FeedForwardSubNet(tf.keras.Model):
+    def __init__(self, config):
+        super(FeedForwardSubNet, self).__init__()
+        dim = config.eqn_config.dim_pi
+        num_hiddens = config.net_config.num_hiddens
+        self.dense_layers = [tf.keras.layers.Dense(num_hiddens[i],
+                                                   use_bias=True,
+                                                   activation="relu")
+                             for i in range(len(num_hiddens))]
+        # final output should be gradient of size dim
+        self.dense_layers.append(tf.keras.layers.Dense(dim, activation=None))
+
+    def call(self, x, training):
+        """structure: bn -> (dense -> bn -> relu) * len(num_hiddens) -> dense -> bn"""
+        for i in range(len(self.dense_layers) - 1):
+            x = self.dense_layers[i](x)
+        x = self.dense_layers[-1](x)
         return x
 
 

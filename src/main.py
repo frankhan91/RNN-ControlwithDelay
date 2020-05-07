@@ -13,7 +13,7 @@ import equation
 from solver import Solver
 
 
-flags.DEFINE_string('config_path', 'configs/csmp_ff.json',
+flags.DEFINE_string('config_path', 'configs/csmp_shff.json',
                     """The path to load json file.""")
 flags.DEFINE_string('exp_name', 'test',
                     """The name of numerical experiments, prefix for logging""")
@@ -47,6 +47,10 @@ def main(argv):
     )
 
     print(reward.mean(), reward_hat.mean())
+    print(
+        np.sqrt(np.mean((x_sample-xhat_sample)**2)/np.mean(x_sample**2)),
+        np.sqrt(np.mean((pi_sample-pihat_sample)**2)/np.mean(pi_sample**2))
+    )
     print(reward[:10])
     print(reward_hat[:10])
 

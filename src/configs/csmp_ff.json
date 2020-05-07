@@ -15,7 +15,7 @@
   },
   "net_config": {
     "model_name": "NonsharedFFModel",
-    "util_penalty": 1e7,
+    "util_penalty": 1e5,
     "n_lag_state": 24,
     "num_hiddens": [30, 30, 30],
     "lr_values": [2e-4, 2e-4],
