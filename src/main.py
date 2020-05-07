@@ -13,7 +13,7 @@ import equation
 from solver import Solver
 
 
-flags.DEFINE_string('config_path', 'configs/lq_ff.json',
+flags.DEFINE_string('config_path', 'configs/csmp_ff.json',
                     """The path to load json file.""")
 flags.DEFINE_string('exp_name', 'test',
                     """The name of numerical experiments, prefix for logging""")
@@ -51,7 +51,7 @@ def main(argv):
     print(reward_hat[:10])
 
     prob, nn = ((FLAGS.config_path.split('.')[0]).split('/')[-1]).split('_')
-    lag = int(config.eqn_config.delta*10)
+    lag = int(config.eqn_config.delta/config.eqn_config.T*10)
     np.savez(
         file=os.path.join('../data/{}'.format(prob), '{}_lag{}_test.npz'.format(nn, lag)),
         x_sample=x_sample, pi_sample=pi_sample, reward=reward,

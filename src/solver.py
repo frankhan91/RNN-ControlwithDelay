@@ -201,7 +201,7 @@ class CsmpPolicyModel(tf.keras.Model):
             y = (tf.reduce_sum(wgt_x_hist, axis=-1) - 0.5*(wgt_x_hist[:, 0] + wgt_x_hist[:, -1])) * self.eqn.dt
             x_common = x + self.eqn.a * self.eqn.exp_fac * y
             if t == self.eqn.nt:
-                reward += self.util_tf(x_common)
+                reward += self.util_tf(x_common)*self.eqn.final_disc
                 # penalty on x
                 reward -= tf.nn.relu(-x)*self.net_config.util_penalty
             else:

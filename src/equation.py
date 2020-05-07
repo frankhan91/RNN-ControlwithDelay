@@ -138,8 +138,9 @@ class Csmp(object):
         self.sqrt_dt = np.sqrt(self.dt)
         self.n_lag = int(np.round(self.delta/self.dt))
 
-        self.x_init = 1 + 10 * np.arange(self.n_lag+1) * self.dt  # of shape (n_lag+1,)
+        self.x_init = 2 + 5 * np.arange(self.n_lag+1) * self.dt  # of shape (n_lag+1,)
 
+        self.final_disc = np.exp(-self.beta*self.T)
         self.util_fn = lambda x: x**self.gamma / self.gamma
         self.exp_fac = np.exp(self.lambd * self.delta)
         self.drift_coeff = self.a * self.exp_fac
@@ -187,7 +188,7 @@ class Csmp(object):
             y_sample[..., t] = (np.sum(wgt_x_hist, axis=-1) - 0.5*(wgt_x_hist[..., 0] + wgt_x_hist[..., -1])) * self.dt
             x_common = x_sample[..., t] + self.a * self.exp_fac * y_sample[..., t]
             if t == self.nt:
-                reward += self.util_fn(x_common)
+                reward += self.util_fn(x_common)*self.final_disc
             else:
                 pi, hidden = policy(t, x_hist, wgt_x_hist, hidden)
                 pi = np.maximum(pi, 0)
@@ -210,7 +211,7 @@ class Csmp(object):
             dp = np.exp(-self.beta*t/(1-self.gamma)) - coeff * p
             return dp
 
-        sol = solve_ivp(full_riccati, [0, self.T], [1],
+        sol = solve_ivp(full_riccati, [0, self.T], [self.final_disc**(1/(1-self.gamma))],
                         t_eval=np.linspace(0, self.T, self.nt+1))
         pt = np.flip(sol.y, axis=-1)[0] # of shape(nt+1)
         return pt
