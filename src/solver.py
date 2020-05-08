@@ -31,11 +31,15 @@ class Solver(object):
             if step % self.net_config.logging_frequency == 0:
                 reward = self.loss_fn(valid_data, training=False).numpy()
                 elapsed_time = time.time() - start_time
+                training_history.append([step, reward, elapsed_time])
                 if self.net_config.verbose:
                     logging.info("step: %5u,    reward: %.4e,   elapsed time: %3u" % (
                         step, reward, elapsed_time))
+                    if step == 0:
+                        print(self.model.summary())
             self.train_step(self.eqn.sample(self.net_config.batch_size))
         return np.array(training_history)
+
 
     def loss_fn(self, inputs, training):
         reward = self.model(inputs, training)
@@ -138,6 +142,53 @@ class LQNonsharedFFModel(LQPolicyModel):
             state = x_hist[:, :, -(self.n_lag_state+1):]
             state = tf.reshape(state, [state.shape[0], -1])
             pi = self.subnet[t-1](state, training=False)
+        return pi, None
+
+
+class LQSharedFFModel(LQPolicyModel):
+    def __init__(self, config, eqn):
+        super(LQSharedFFModel, self).__init__(config, eqn)
+        self.n_lag_state = config.net_config.n_lag_state
+        self.pi_init = tf.Variable(
+            np.random.uniform(
+                low=0,
+                high=0,
+                size=[1, self.eqn.dim_pi])
+        )
+        self.subnet = FeedForwardSubNet(config)
+
+    def hidden_init_tf(self, num_sample):
+        return None
+
+    def hidden_init(self, num_sample):
+        return None
+
+    def policy_tf(self, training, t, x_hist, hidden=None):
+        if t == 0:
+            return self.pi_init, None
+        else:
+            state = x_hist[:, :, -(self.n_lag_state+1):]
+            state = tf.reshape(state, [state.shape[0], -1])
+            t = tf.broadcast_to(
+                tf.cast(t*self.eqn.dt, dtype=self.net_config.dtype),
+                shape=[state.shape[0], 1]
+            )
+            state = tf.concat([state, t], axis=-1)
+            pi = self.subnet(state, training)
+        return pi, None
+
+    def policy(self, t, x_hist, wgt_x_hist=None, hidden=None):
+        if t == 0:
+            return self.pi_init.numpy(), None
+        else:
+            state = x_hist[:, :, -(self.n_lag_state+1):]
+            state = tf.reshape(state, [state.shape[0], -1])
+            t = tf.broadcast_to(
+                tf.cast(t*self.eqn.dt, dtype=self.net_config.dtype),
+                shape=[state.shape[0], 1]
+            )
+            state = tf.concat([state, t], axis=-1)
+            pi = self.subnet(state, training=False)
         return pi, None
 
 

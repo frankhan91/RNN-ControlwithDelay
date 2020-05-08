@@ -13,7 +13,7 @@ import equation
 from solver import Solver
 
 
-flags.DEFINE_string('config_path', 'configs/csmp_shff.json',
+flags.DEFINE_string('config_path', 'configs/lq_shff.json',
                     """The path to load json file.""")
 flags.DEFINE_string('exp_name', 'test',
                     """The name of numerical experiments, prefix for logging""")
@@ -37,7 +37,7 @@ def main(argv):
     logging.info('Value in continuous time: %.4e, reward with analytic policy: %.4e' % (eqn.value, np.mean(reward)))
 
     sol = Solver(config, eqn)
-    sol.train()
+    hist = sol.train()
 
     n_save = 100
     x_sample, pi_sample, reward = eqn.simulate(n_save, eqn.true_policy, fixseed=True)
@@ -59,7 +59,8 @@ def main(argv):
     np.savez(
         file=os.path.join('../data/{}'.format(prob), '{}_lag{}_test.npz'.format(nn, lag)),
         x_sample=x_sample, pi_sample=pi_sample, reward=reward,
-        xhat_sample=xhat_sample, pihat_sample=pihat_sample, reward_hat=reward_hat
+        xhat_sample=xhat_sample, pihat_sample=pihat_sample, reward_hat=reward_hat,
+        config=json.dumps(config), hist=hist
     )
 
 
