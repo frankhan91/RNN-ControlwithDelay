@@ -108,43 +108,6 @@ class LQPolicyModel(tf.keras.Model):
         raise NotImplementedError
 
 
-class LQNonsharedFFModel(LQPolicyModel):
-    def __init__(self, config, eqn):
-        super(LQNonsharedFFModel, self).__init__(config, eqn)
-        self.n_lag_state = config.net_config.n_lag_state
-        self.pi_init = tf.Variable(
-            np.random.uniform(
-                low=0,
-                high=0,
-                size=[1, self.eqn.dim_pi])
-        )
-        self.subnet = [FeedForwardBNSubNet(config) for _ in range(self.eqn.nt-1)]
-
-    def hidden_init_tf(self, num_sample):
-        return None
-
-    def hidden_init(self, num_sample):
-        return None
-
-    def policy_tf(self, training, t, x_hist, hidden=None):
-        if t == 0:
-            return self.pi_init, None
-        else:
-            state = x_hist[:, :, -(self.n_lag_state+1):]
-            state = tf.reshape(state, [state.shape[0], -1])
-            pi = self.subnet[t-1](state, training)
-        return pi, None
-
-    def policy(self, t, x_hist, wgt_x_hist=None, hidden=None):
-        if t == 0:
-            return self.pi_init.numpy(), None
-        else:
-            state = x_hist[:, :, -(self.n_lag_state+1):]
-            state = tf.reshape(state, [state.shape[0], -1])
-            pi = self.subnet[t-1](state, training=False)
-        return pi, None
-
-
 class LQSharedFFModel(LQPolicyModel):
     def __init__(self, config, eqn):
         super(LQSharedFFModel, self).__init__(config, eqn)
@@ -293,43 +256,6 @@ class CsmpPolicyModel(tf.keras.Model):
 
     def policy(self, t, x_hist, wgt_x_hist=None, hidden=None):
         raise NotImplementedError
-
-
-class CsmpNonsharedFFModel(CsmpPolicyModel):
-    def __init__(self, config, eqn):
-        super(CsmpNonsharedFFModel, self).__init__(config, eqn)
-        self.n_lag_state = config.net_config.n_lag_state
-        self.pi_init = tf.Variable(
-            np.random.uniform(
-                low=1.0,
-                high=1.0,
-                size=[1,])
-        )
-        self.subnet = [FeedForwardBNSubNet(config) for _ in range(self.eqn.nt-1)]
-
-    def hidden_init_tf(self, num_sample):
-        return None
-
-    def hidden_init(self, num_sample):
-        return None
-
-    def policy_tf(self, training, t, x_hist, hidden=None):
-        if t == 0:
-            return tf.nn.relu(self.pi_init), None
-        else:
-            state = x_hist[:, -(self.n_lag_state+1):]
-            state = tf.reshape(state, [state.shape[0], -1])
-            pi = tf.nn.relu(self.subnet[t-1](state, training)[:, 0])
-        return pi, None
-
-    def policy(self, t, x_hist, wgt_x_hist=None, hidden=None):
-        if t == 0:
-            return self.pi_init.numpy(), None
-        else:
-            state = x_hist[:, -(self.n_lag_state+1):]
-            state = tf.reshape(state, [state.shape[0], -1])
-            pi = tf.nn.relu(self.subnet[t-1](state, training=False)[:, 0])
-        return pi, None
 
 
 class CsmpSharedFFModel(CsmpPolicyModel):
