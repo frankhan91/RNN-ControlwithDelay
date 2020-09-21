@@ -29,7 +29,7 @@ class LQ(object):
         self.B = np.random.normal(size=(self.dim_x, self.dim_pi), scale=1)
         self.sigma = np.random.normal(size=(self.dim_x, self.dim_w), scale=1)
         # self.x_init = np.random.normal(size=(self.dim_x, 1)) * -np.arange(self.n_lag+1) * self.dt  # of shape (dx, n_lag+1)
-        self.x_init = 1 * np.arange(1, self.dim_x+1)[:, None] * -np.arange(self.n_lag+1) * self.dt  # of shape (dx, n_lag+1)
+        self.x_init = 1 * np.arange(1, self.dim_x+1)[:, None]/self.dim_x * -np.arange(self.n_lag+1) * self.dt  # of shape (dx, n_lag+1)
         
         self.Rinv = np.linalg.inv(self.R)
         self.exp_fac = np.exp(self.lambd * self.delta)

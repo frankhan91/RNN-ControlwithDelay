@@ -13,7 +13,7 @@ import equation
 from solver import Solver
 
 
-flags.DEFINE_string('config_path', 'configs/lq_shff.json',
+flags.DEFINE_string('config_path', 'configs/lq-d10_lstm.json',
                     """The path to load json file.""")
 flags.DEFINE_string('exp_name', 'test',
                     """The name of numerical experiments, prefix for logging""")
