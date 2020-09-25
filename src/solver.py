@@ -346,6 +346,70 @@ class CsmpLSTMModel(CsmpPolicyModel):
         return pi, hidden
 
 
+class CsmpLSTMModel_W(CsmpLSTMModel):
+    def __init__(self, config, eqn):
+        super(CsmpLSTMModel_W, self).__init__(config, eqn)
+        self.h_init = tf.Variable(
+            np.random.uniform(
+                low=0,
+                high=0,
+                size=[1, self.net_config.dim_h])
+        )
+        self.C_init = tf.Variable(
+            np.random.uniform(
+                low=0,
+                high=0,
+                size=[1, self.net_config.dim_h])
+        )
+        self.lstm = LSTMCell(config)
+
+    def call(self, inputs, training):
+        dw_sample, x_hist, wgt_x_hist = inputs
+        x = x_hist[:, -1] # of shape (B,)
+        hidden = self.hidden_init_tf(tf.shape(dw_sample)[0])
+
+        reward = 0
+        for t in range(self.eqn.nt+1):
+            if t > 0:
+                x_hist = tf.concat([x_hist[:, 1:], x[:, None]], axis=-1)
+                wgt_x_hist = tf.concat([wgt_x_hist[:, 1:] * self.eqn.exp_array[-2], x[:, None]], axis=-1)
+            zeta = x_hist[:, 0]
+            y = (tf.reduce_sum(wgt_x_hist, axis=-1) - 0.5*(wgt_x_hist[:, 0] + wgt_x_hist[:, -1])) * self.eqn.dt
+            x_common = x + self.eqn.a * self.eqn.exp_fac * y
+            if t == self.eqn.nt:
+                reward += self.util_tf(x_common)*self.eqn.final_disc
+                # penalty on x
+                reward -= tf.nn.relu(-x)*self.net_config.util_penalty
+            else:
+                if t == 0:
+                    dw_inst = dw_sample[..., 0:1] * 0 + 0.1
+                else:
+                    dw_inst = dw_sample[..., t-1:t]
+                pi, hidden = self.policy_tf(training, t, dw_inst, hidden)
+                inst_r = self.util_tf(pi) * np.exp(-self.eqn.beta * t * self.eqn.dt)
+                # penalty on x
+                inst_r -= tf.nn.relu(-x)*self.net_config.util_penalty
+                reward += inst_r * self.eqn.dt
+
+            if t < self.eqn.nt:
+                dx = self.eqn.drift_coeff*(self.eqn.drift_coeff+self.eqn.lambd) * y + self.eqn.mu * x_common \
+                    + self.eqn.a * zeta - pi
+                x = x + dx * self.eqn.dt + self.eqn.sigma * x_common * dw_sample[:, t]
+        return -reward
+
+    def policy_tf(self, training, t, dw_inst, hidden=None):
+        # print(self.all_one_vec.shape, dw_inst.shape)
+        pi, hidden = self.lstm(t*self.eqn.dt*self.all_one_vec, dw_inst, hidden)
+        pi = tf.nn.relu(pi)[:, 0]
+        return pi, hidden
+
+    def policy(self, t, x_hist, wgt_x_hist=None, dw_inst=None, hidden=None):
+        t = np.broadcast_to(t*self.eqn.dt, [x_hist.shape[0], 1])
+        pi, hidden = self.lstm(t, dw_inst, hidden)
+        pi = tf.nn.relu(pi)[:, 0]
+        return pi, hidden
+
+
 class FeedForwardBNSubNet(tf.keras.Model):
     def __init__(self, config):
         super(FeedForwardSubNet, self).__init__()

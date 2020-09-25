@@ -190,7 +190,11 @@ class Csmp(object):
             if t == self.nt:
                 reward += self.util_fn(x_common)*self.final_disc
             else:
-                pi, hidden = policy(t, x_hist, wgt_x_hist, hidden)
+                if t == 0:
+                    dw_inst = dw_sample[..., 0:1] * 0 + 0.1
+                else:
+                    dw_inst = dw_sample[..., t-1:t]
+                pi, hidden = policy(t, x_hist, wgt_x_hist, dw_inst, hidden)
                 pi = np.maximum(pi, 0)
                 pi_sample[..., t] = pi
                 inst_r = self.util_fn(pi) * np.exp(-self.beta * t * self.dt)
@@ -216,7 +220,7 @@ class Csmp(object):
         pt = np.flip(sol.y, axis=-1)[0] # of shape(nt+1)
         return pt
 
-    def true_policy(self, t, x_hist, wgt_x_hist, hidden=None):
+    def true_policy(self, t, x_hist, wgt_x_hist, dw_inst, hidden=None):
         y_sample = (np.sum(wgt_x_hist, axis=-1) - 0.5*(wgt_x_hist[..., 0] + wgt_x_hist[..., -1])) * self.dt
         x_common = x_hist[..., -1] + self.a * self.exp_fac * y_sample
         pi = np.exp(-self.beta * t * self.dt/(1-self.gamma)) * x_common / self.pt[t]
