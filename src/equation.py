@@ -101,7 +101,11 @@ class LQ(object):
             if t == self.nt:
                 reward += np.sum((x_common @ self.G) * x_common, axis=-1)
             else:
-                pi, hidden = policy(t, x_hist, wgt_x_hist, hidden)
+                if t == 0:
+                    dw_inst = dw_sample[..., 0] * 0 + 0.1
+                else:
+                    dw_inst = dw_sample[..., t-1]
+                pi, hidden = policy(t, x_hist, wgt_x_hist, dw_inst, hidden)
                 pi_sample[..., t] = pi
                 inst_r = np.sum((x_common @ self.Q) * x_common, axis=-1) + np.sum((pi @ self.R) * pi, axis=-1)
                 reward = reward + inst_r * self.dt
@@ -113,7 +117,7 @@ class LQ(object):
 
         return x_sample, pi_sample, reward
 
-    def true_policy(self, t, x_hist, wgt_x_hist, hidden=None):
+    def true_policy(self, t, x_hist, wgt_x_hist, dw_inst, hidden=None):
         y_sample = (np.sum(wgt_x_hist, axis=-1) - 0.5*(wgt_x_hist[..., 0] + wgt_x_hist[..., -1])) * self.dt
         x_common = x_hist[..., -1] + self.exp_fac * y_sample @ self.A3
         pi = - x_common @ (self.Rinv @ self.B.transpose() @ self.Pt[t]).transpose()

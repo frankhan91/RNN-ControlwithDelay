@@ -193,6 +193,63 @@ class LQLSTMModel(LQPolicyModel):
         return pi, hidden
 
 
+class LQLSTMModel_W(LQLSTMModel):
+    def __init__(self, config, eqn):
+        super(LQLSTMModel_W, self).__init__(config, eqn)
+        self.h_init = tf.Variable(
+            np.random.uniform(
+                low=0,
+                high=0,
+                size=[1, self.net_config.dim_h])
+        )
+        self.C_init = tf.Variable(
+            np.random.uniform(
+                low=0,
+                high=0,
+                size=[1, self.net_config.dim_h])
+        )
+        self.lstm = LSTMCell(config)
+
+    def call(self, inputs, training):
+        dw_sample, x_hist, wgt_x_hist = inputs
+        x = x_hist[:, :, -1] # of shape (B, dx)
+        hidden = self.hidden_init_tf(tf.shape(dw_sample)[0])
+
+        reward = 0
+        for t in range(self.eqn.nt+1):
+            if t > 0:
+                x_hist = tf.concat([x_hist[:, :, 1:], x[:, :, None]], axis=-1)
+                wgt_x_hist = tf.concat([wgt_x_hist[:, :, 1:] * self.eqn.exp_array[-2], x[:, :, None]], axis=-1)
+            zeta = x_hist[:, :, 0]
+            y = (tf.reduce_sum(wgt_x_hist, axis=-1) - 0.5*(wgt_x_hist[..., 0] + wgt_x_hist[..., -1])) * self.eqn.dt
+            x_common = x + self.eqn.exp_fac * y @ self.eqn.A3
+            if t == self.eqn.nt:
+                reward += tf.reduce_sum((x_common @ self.eqn.G) * x_common, axis=-1)
+            else:
+                if t == 0:
+                    dw_inst = dw_sample[..., 0] * 0 + 0.1
+                else:
+                    dw_inst = dw_sample[..., t-1]
+                pi, hidden = self.policy_tf(training, t, dw_inst, hidden)
+                inst_r = tf.reduce_sum((x_common @ self.eqn.Q) * x_common, axis=-1) + tf.reduce_sum((pi @ self.eqn.R) * pi, axis=-1)
+                reward += inst_r * self.eqn.dt
+
+            if t < self.eqn.nt:
+                dx = (x @ self.eqn.A1.transpose() + y @ self.eqn.A2.transpose() \
+                  + zeta @ self.eqn.A3.transpose() + pi @ self.eqn.B.transpose())
+                x = x + dx * self.eqn.dt + dw_sample[..., t] @ self.eqn.sigma.transpose()
+
+        return reward
+
+    def policy_tf(self, training, t, dw_inst, hidden=None):
+        return self.lstm(t*self.eqn.dt*self.all_one_vec, dw_inst, hidden)
+
+    def policy(self, t, x_hist, wgt_x_hist=None, dw_inst=None, hidden=None):
+        t = np.broadcast_to(t*self.eqn.dt, [x_hist.shape[0], 1])
+        pi, hidden = self.lstm(t, dw_inst, hidden)
+        return pi, hidden
+
+
 class CsmpPolicyModel(tf.keras.Model):
     def __init__(self, config, eqn):
         super(CsmpPolicyModel, self).__init__()
@@ -398,7 +455,6 @@ class CsmpLSTMModel_W(CsmpLSTMModel):
         return -reward
 
     def policy_tf(self, training, t, dw_inst, hidden=None):
-        # print(self.all_one_vec.shape, dw_inst.shape)
         pi, hidden = self.lstm(t*self.eqn.dt*self.all_one_vec, dw_inst, hidden)
         pi = tf.nn.relu(pi)[:, 0]
         return pi, hidden
