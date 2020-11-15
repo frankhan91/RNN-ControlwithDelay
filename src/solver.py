@@ -140,7 +140,7 @@ class LQSharedFFModel(LQPolicyModel):
             pi = self.subnet(state, training)
         return pi, None
 
-    def policy(self, t, x_hist, wgt_x_hist=None, hidden=None):
+    def policy(self, t, x_hist, wgt_x_hist=None, dw_inst=None, hidden=None):
         if t == 0:
             return self.pi_init.numpy(), None
         else:
@@ -187,7 +187,7 @@ class LQLSTMModel(LQPolicyModel):
     def policy_tf(self, training, t, x_hist, hidden=None):
         return self.lstm(t*self.eqn.dt*self.all_one_vec, x_hist[..., -1], hidden)
 
-    def policy(self, t, x_hist, wgt_x_hist=None, hidden=None):
+    def policy(self, t, x_hist, wgt_x_hist=None, dw_inst=None, hidden=None):
         t = np.broadcast_to(t*self.eqn.dt, [x_hist.shape[0], 1])
         pi, hidden = self.lstm(t, x_hist[..., -1], hidden)
         return pi, hidden
@@ -347,7 +347,7 @@ class CsmpSharedFFModel(CsmpPolicyModel):
             pi = tf.nn.relu(self.subnet(state, training)[:, 0])
         return pi, None
 
-    def policy(self, t, x_hist, wgt_x_hist=None, hidden=None):
+    def policy(self, t, x_hist, wgt_x_hist=None, dw_inst=None, hidden=None):
         if t == 0:
             return self.pi_init.numpy(), None
         else:
@@ -396,7 +396,7 @@ class CsmpLSTMModel(CsmpPolicyModel):
         pi = tf.nn.relu(pi)[:, 0]
         return pi, hidden
 
-    def policy(self, t, x_hist, wgt_x_hist=None, hidden=None):
+    def policy(self, t, x_hist, wgt_x_hist=None, dw_inst=None, hidden=None):
         t = np.broadcast_to(t*self.eqn.dt, [x_hist.shape[0], 1])
         pi, hidden = self.lstm(t, x_hist[:, -1:], hidden)
         pi = tf.nn.relu(pi)[:, 0]

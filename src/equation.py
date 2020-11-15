@@ -41,26 +41,6 @@ class LQ(object):
         x_common = self.x_init[..., -1] + self.exp_fac * y_init @ self.A3
         self.value = v_integral + np.sum((x_common @ self.Pt[0]) * x_common, axis=-1)
         np.random.seed(int(time.time()))
-        
-    def riccati_soln(self):
-        def full_riccati(t, y):
-            dy = np.zeros_like(y)
-            P = np.reshape(y[:-1], (self.dim_x, self.dim_x))
-            coeff = self.A1 + self.exp_fac * self.A3
-            dP = self.Q + P @ coeff + coeff.transpose() @ P - P @ self.B @ self.Rinv @ self.B.transpose() @ P
-            dy[:-1] = np.reshape(dP, -1)
-            dy[-1] = np.sum(P * (self.sigma @ self.sigma.transpose()))
-            return dy
-        
-        sol = solve_ivp(full_riccati, [0, self.T], np.concatenate([np.reshape(self.G, -1), [0]]),
-                        t_eval=np.linspace(0, self.T, self.nt+1))
-        y = np.flip(sol.y, axis=-1) # (dim_P + 1) * (nt+1)
-        Pt = np.reshape(y[:-1].transpose(), (self.nt+1, self.dim_x, self.dim_x))
-        v_integral = y[-1, 0]
-        # print(Pt[0])
-        # print(Pt[1])
-        # print(Pt[-1])
-        return Pt, v_integral
     
     def sample(self, num_sample, fixseed=False):
         if fixseed:
@@ -117,6 +97,26 @@ class LQ(object):
 
         return x_sample, pi_sample, reward
 
+    def riccati_soln(self):
+        def full_riccati(t, y):
+            dy = np.zeros_like(y)
+            P = np.reshape(y[:-1], (self.dim_x, self.dim_x))
+            coeff = self.A1 + self.exp_fac * self.A3
+            dP = self.Q + P @ coeff + coeff.transpose() @ P - P @ self.B @ self.Rinv @ self.B.transpose() @ P
+            dy[:-1] = np.reshape(dP, -1)
+            dy[-1] = np.sum(P * (self.sigma @ self.sigma.transpose()))
+            return dy
+
+        sol = solve_ivp(full_riccati, [0, self.T], np.concatenate([np.reshape(self.G, -1), [0]]),
+                        t_eval=np.linspace(0, self.T, self.nt+1))
+        y = np.flip(sol.y, axis=-1) # (dim_P + 1) * (nt+1)
+        Pt = np.reshape(y[:-1].transpose(), (self.nt+1, self.dim_x, self.dim_x))
+        v_integral = y[-1, 0]
+        # print(Pt[0])
+        # print(Pt[1])
+        # print(Pt[-1])
+        return Pt, v_integral
+
     def true_policy(self, t, x_hist, wgt_x_hist, dw_inst, hidden=None):
         y_sample = (np.sum(wgt_x_hist, axis=-1) - 0.5*(wgt_x_hist[..., 0] + wgt_x_hist[..., -1])) * self.dt
         x_common = x_hist[..., -1] + self.exp_fac * y_sample @ self.A3
@@ -126,6 +126,7 @@ class LQ(object):
 
 class Csmp(object):
     def __init__(self, eqn_config):
+        np.random.seed(seed=eqn_config.seed)
         self.eqn_config = eqn_config
         self.delta = eqn_config.delta
         self.T = eqn_config.T
