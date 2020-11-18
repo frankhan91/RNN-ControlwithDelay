@@ -1,0 +1,30 @@
+{
+  "eqn_config": {
+    "eqn_name": "POlog",
+    "seed": 123,
+    "delta": 3,
+    "T": 5,
+    "nt": 100,
+    "dim_pi": 2,
+    "lambd": 0.5,
+    "beta": 0.3,
+    "mu1": 0.15,
+    "mu2": 0.3,
+    "r": 0.1,
+    "sigma": 0.5,
+    "logeps": 1e-10
+  },
+  "net_config": {
+    "model_name": "LSTMModel",
+    "util_penalty": 1e1,
+    "dim_h": 60,
+    "lr_values": [1e-4, 1e-4],
+    "lr_boundaries": [1000],
+    "num_iterations": 10000,
+    "batch_size": 128,
+    "valid_size": 256,
+    "logging_frequency": 200,
+    "dtype": "float64",
+    "verbose": "True"
+  }
+}
