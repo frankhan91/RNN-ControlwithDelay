@@ -236,6 +236,7 @@ class POlog(object):
     def __init__(self, eqn_config):
         np.random.seed(seed=eqn_config.seed)
         self.eqn_config = eqn_config
+        self.fixinit = self.eqn_config.fixinit
         self.delta = eqn_config.delta
         self.T = eqn_config.T
         self.nt = eqn_config.nt
@@ -261,39 +262,38 @@ class POlog(object):
         self.final_disc = np.exp(-self.beta*self.T)
         t_grid = np.linspace(0, self.T, self.nt+1)
         self.pt = self.Lambd2 / self.beta * (1 - np.exp(-self.beta*(self.T - t_grid)))
-        exp_array = np.exp(-np.arange(-self.n_lag+1, 1, 1) * self.dt * self.lambd)  # of shape (n_lag,)
+        self.exp_array = np.exp(-np.arange(-self.n_lag+1, 1, 1) * self.dt * self.lambd)  # of shape (n_lag,)
         # assume x_init are constants before -delta
-        geometric_sum = np.exp(-self.lambd * self.T) * self.dt / (1-np.exp(-self.lambd * self.dt))
-        self.y_init = np.sum(exp_array * self.x_init[1:], axis=-1) * self.dt + geometric_sum * self.x_init[0]
-        self.value = self.pt[0] + np.log(self.x_init[-1] + self.eta * self.y_init) / self.beta
+        self.geometric_sum = np.exp(-self.lambd * self.T) * self.dt / (1-np.exp(-self.lambd * self.dt))
+        dw_sample, x_init = self.sample(4096)
+        y_init = np.sum(self.exp_array * x_init[:, 1:], axis=-1) * self.dt + self.geometric_sum * x_init[:, 0]
+        self.value = np.mean(self.pt[0] + np.log(x_init[:, -1] + self.eta * y_init) / self.beta)
 
     def sample(self, num_sample, fixseed=False):
         if fixseed:
             np.random.seed(seed=self.eqn_config.seed)
         dw_sample = normal.rvs(size=[num_sample, self.nt]) * self.sqrt_dt
-        x_hist = np.repeat(self.x_init[None, :], [num_sample], axis=0)
+        if self.fixinit:
+            x_init = 0.2 + 5 * np.arange(self.n_lag+1) * self.dt  # of shape (n_lag+1,)
+            x_hist = np.repeat(x_init[None, :], [num_sample], axis=0)
         if fixseed:
             np.random.seed(int(time.time()))
         return dw_sample, x_hist
 
     def simulate(self, num_sample, policy, fixseed=False, hidden_init=None):
-        if fixseed:
-            np.random.seed(seed=self.eqn_config.seed)
-        dw_sample = normal.rvs(size=[num_sample, self.nt]) * self.sqrt_dt
+        dw_sample, x_hist = self.sample(num_sample, fixseed)
         if fixseed:
             np.random.seed(int(time.time()))
         x_sample = np.zeros([num_sample, self.nt+1])
-        x_sample[:, 0] = self.x_init[-1]
+        x_sample[:, 0] = x_hist[:, -1]
         pi_sample = np.zeros([num_sample, self.dim_pi, self.nt])
         reward = np.zeros([num_sample])
         hidden = hidden_init # used for LSTM model only
 
         reward = 0
-        y = self.y_init
+        y = np.sum(self.exp_array * x_hist[:, 1:], axis=-1) * self.dt + self.geometric_sum * x_hist[:, 0]
         for t in range(self.nt+1):
-            if t == 0:
-                x_hist = np.repeat(self.x_init[None, :], [num_sample], axis=0) # of shape (B, n_lag+1)
-            else:
+            if t > 0:
                 x_hist[:, :-1] = x_hist[:, 1:]
                 x_hist[:, -1] = x_sample[:, t]
             if t == self.nt:

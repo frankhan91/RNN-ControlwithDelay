@@ -480,7 +480,8 @@ class POlogPolicyModel(tf.keras.Model):
         hidden = self.hidden_init_tf(tf.shape(dw_sample)[0])
 
         reward = 0
-        y = self.eqn.y_init
+        y = tf.reduce_sum(self.eqn.exp_array * x_hist[:, 1:], axis=-1) * self.eqn.dt + \
+            self.eqn.geometric_sum * x_hist[:, 0]
         for t in range(self.eqn.nt+1):
             if t > 0:
                 x_hist = tf.concat([x_hist[:, 1:], x[:, None]], axis=-1)

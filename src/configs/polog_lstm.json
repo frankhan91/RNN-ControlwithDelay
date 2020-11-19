@@ -2,6 +2,7 @@
   "eqn_config": {
     "eqn_name": "POlog",
     "seed": 123,
+    "fixinit": true,
     "delta": 3,
     "T": 5,
     "nt": 100,
