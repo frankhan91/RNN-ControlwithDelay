@@ -43,7 +43,7 @@ def main(argv):
     x_sample, pi_sample, reward = eqn.simulate(n_save, eqn.true_policy, fixseed=True)
     xhat_sample, pihat_sample, reward_hat = eqn.simulate(
         n_save, sol.model.policy,
-        fixseed=True, hidden_init=sol.model.hidden_init(n_save)
+        fixseed=True, hidden_init_fn=sol.model.hidden_init_np
     )
 
     print(reward.mean(), reward_hat.mean())

@@ -275,20 +275,29 @@ class POlog(object):
         dw_sample = normal.rvs(size=[num_sample, self.nt]) * self.sqrt_dt
         if self.fixinit:
             x_init = 0.2 + 5 * np.arange(self.n_lag+1) * self.dt  # of shape (n_lag+1,)
-            x_hist = np.repeat(x_init[None, :], [num_sample], axis=0)
+            x_init = np.repeat(x_init[None, :], [num_sample], axis=0)
+        else:
+            x_init = np.zeros([num_sample, self.n_lag+1])
+            x_init[:, 0] = np.random.uniform(1, 5, size=[num_sample,])
+            for t in range(1, self.n_lag+1):
+                x_init[:, t] = x_init[:, t-1] * (1 + 0.4*self.dt + 0.1*self.sigma*np.random.normal(size=[num_sample]) * self.sqrt_dt)
         if fixseed:
             np.random.seed(int(time.time()))
-        return dw_sample, x_hist
+        return dw_sample, x_init
 
-    def simulate(self, num_sample, policy, fixseed=False, hidden_init=None):
-        dw_sample, x_hist = self.sample(num_sample, fixseed)
+    def simulate(self, num_sample, policy, fixseed=False, hidden_init_fn=None):
+        dw_sample, x_init = self.sample(num_sample, fixseed)
         if fixseed:
             np.random.seed(int(time.time()))
         x_sample = np.zeros([num_sample, self.nt+1])
+        x_hist = x_init.copy()
         x_sample[:, 0] = x_hist[:, -1]
         pi_sample = np.zeros([num_sample, self.dim_pi, self.nt])
         reward = np.zeros([num_sample])
-        hidden = hidden_init # used for LSTM model only
+        if hidden_init_fn is None:
+            hidden = None
+        else:
+            hidden = hidden_init_fn(x_init) # used for LSTM model only
 
         reward = 0
         y = np.sum(self.exp_array * x_hist[:, 1:], axis=-1) * self.dt + self.geometric_sum * x_hist[:, 0]

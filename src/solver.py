@@ -475,9 +475,10 @@ class POlogPolicyModel(tf.keras.Model):
         # self.zero = tf.constant(0.0, dtype=self.net_config.dtype)
 
     def call(self, inputs, training):
-        dw_sample, x_hist = inputs
-        x = x_hist[:, -1] # of shape (B,)
-        hidden = self.hidden_init_tf(tf.shape(dw_sample)[0])
+        dw_sample, x_init = inputs
+        x = x_init[:, -1] # of shape (B,)
+        hidden = self.hidden_init_tf(x_init)
+        x_hist = x_init
 
         reward = 0
         y = tf.reduce_sum(self.eqn.exp_array * x_hist[:, 1:], axis=-1) * self.eqn.dt + \
@@ -505,10 +506,14 @@ class POlogPolicyModel(tf.keras.Model):
     def util_tf(self, pi):
         return tf.math.log(tf.nn.relu(pi)+self.eqn.logeps)
 
-    def hidden_init_tf(self, num_sample):
+    def final_pi_tf(self, pi):
+        # return tf.concat([tf.nn.relu(pi[:, 0:1]), pi[:, 1:2]], axis=-1)
+        return tf.nn.sigmoid(pi) * 2
+
+    def hidden_init_tf(self, x_init):
         raise NotImplementedError
 
-    def hidden_init(self, num_sample):
+    def hidden_init_np(self, x_init):
         raise NotImplementedError
 
     def policy_tf(self, training, t, x_hist, hidden=None):
@@ -522,23 +527,24 @@ class POlogSharedFFModel(POlogPolicyModel):
     def __init__(self, config, eqn):
         super(POlogSharedFFModel, self).__init__(config, eqn)
         self.n_lag_state = config.net_config.n_lag_state
-        self.pi_init = tf.Variable(
-            np.random.uniform(
-                low=0.3,
-                high=0.3,
-                size=[1, self.eqn.dim_pi])
-        )
+        if self.eqn.fixinit:
+            self.pi_init = tf.Variable(
+                np.random.uniform(
+                    low=0.3,
+                    high=0.3,
+                    size=[1, self.eqn.dim_pi])
+            )
         self.subnet = FeedForwardSubNet(config)
 
-    def hidden_init_tf(self, num_sample):
+    def hidden_init_tf(self, x_init):
         return None
 
-    def hidden_init(self, num_sample):
+    def hidden_init_np(self, x_init):
         return None
 
     def policy_tf(self, training, t, x_hist, hidden=None):
-        if t == 0:
-            return tf.nn.relu(self.pi_init), None
+        if t == 0 and self.eqn.fixinit:
+            return self.pi_init, None
         else:
             state = x_hist[:, -(self.n_lag_state+1):]
             state = tf.reshape(state, [state.shape[0], -1])
@@ -548,12 +554,11 @@ class POlogSharedFFModel(POlogPolicyModel):
             )
             state = tf.concat([state, t], axis=-1)
             pi = self.subnet(state, training)
-            pi = tf.nn.sigmoid(pi)
-            # pi = tf.concat([tf.nn.relu(pi[:, 0:1]), pi[:, 1:2]], axis=-1)
+            pi = self.final_pi_tf(pi)
         return pi, None
 
     def policy(self, t, x_hist, wgt_x_hist=None, dw_inst=None, hidden=None):
-        if t == 0:
+        if t == 0 and self.eqn.fixinit:
             return self.pi_init.numpy(), None
         else:
             state = x_hist[:, -(self.n_lag_state+1):]
@@ -564,51 +569,73 @@ class POlogSharedFFModel(POlogPolicyModel):
             )
             state = tf.concat([state, t], axis=-1)
             pi = self.subnet(state, training=False)
-            pi = tf.nn.sigmoid(pi)
-            # pi = tf.concat([tf.nn.relu(pi[:, 0:1]), pi[:, 1:2]], axis=-1)
+            pi = self.final_pi_tf(pi)
         return pi.numpy(), None
 
 
 class POlogLSTMModel(POlogPolicyModel):
     def __init__(self, config, eqn):
         super(POlogLSTMModel, self).__init__(config, eqn)
-        self.h_init = tf.Variable(
-            np.random.uniform(
-                low=0,
-                high=0,
-                size=[1, self.net_config.dim_h])
-        )
-        self.C_init = tf.Variable(
-            np.random.uniform(
-                low=0,
-                high=0,
-                size=[1, self.net_config.dim_h])
-        )
+        if self.eqn.fixinit:
+            self.h_init = tf.Variable(
+                np.random.uniform(
+                    low=0,
+                    high=0,
+                    size=[1, self.net_config.dim_h])
+            )
+            self.C_init = tf.Variable(
+                np.random.uniform(
+                    low=0,
+                    high=0,
+                    size=[1, self.net_config.dim_h])
+            )
         self.lstm = LSTMCell(config)
 
-    def hidden_init_tf(self, num_sample):
+    def hidden_init_tf(self, x_init):
+        num_sample = tf.shape(x_init)[0]
         self.all_one_vec = tf.ones(shape=tf.stack([num_sample, 1]), dtype=self.net_config.dtype)
-        h = tf.matmul(self.all_one_vec, self.h_init)
-        C = tf.matmul(self.all_one_vec, self.C_init)
-        return (h, C)
+        if self.eqn.fixinit:
+            h = tf.matmul(self.all_one_vec, self.h_init)
+            C = tf.matmul(self.all_one_vec, self.C_init)
+            hidden = (h, C)
+        else:
+            h = x_init[:, 0:1] * np.ones(shape=[1, self.net_config.dim_h])
+            C = x_init[:, 0:1] * np.ones(shape=[1, self.net_config.dim_h])
+            hidden = (h, C)
+            for t in range(-self.eqn.n_lag, 0):
+                _, hidden = self.lstm(
+                    t*self.eqn.dt*self.all_one_vec,
+                    x_init[:, t+self.eqn.n_lag+1:t+self.eqn.n_lag+2], hidden
+                )
+        return hidden
 
-    def hidden_init(self, num_sample):
-        return (
-            np.broadcast_to(self.h_init.numpy(), [num_sample, self.net_config.dim_h]),
-            np.broadcast_to(self.C_init.numpy(), [num_sample, self.net_config.dim_h])
-        )
+    def hidden_init_np(self, x_init):
+        if self.eqn.fixinit:
+            return (
+                np.broadcast_to(self.h_init.numpy(), [num_sample, self.net_config.dim_h]),
+                np.broadcast_to(self.C_init.numpy(), [num_sample, self.net_config.dim_h])
+            )
+        else:
+            num_sample = x_init.shape[0]
+            h = x_init[:, 0:1] * np.ones(shape=[1, self.net_config.dim_h])
+            C = x_init[:, 0:1] * np.ones(shape=[1, self.net_config.dim_h])
+            hidden = (h, C)
+            for t in range(-self.eqn.n_lag, 0):
+                _, hidden = self.lstm(
+                    t*self.eqn.dt*np.ones([num_sample, 1]),
+                    x_init[:, t+self.eqn.n_lag+1:t+self.eqn.n_lag+2], hidden
+                )
+            return hidden
 
     def policy_tf(self, training, t, x_hist, hidden=None):
         pi, hidden = self.lstm(t*self.eqn.dt*self.all_one_vec, x_hist[:, -1:], hidden)
-        # pi = tf.concat([tf.nn.relu(pi[:, 0:1]), pi[:, 1:2]], axis=1)
-        pi = tf.nn.sigmoid(pi)
+        pi = self.final_pi_tf(pi)
         return pi, hidden
 
     def policy(self, t, x_hist, wgt_x_hist=None, dw_inst=None, hidden=None):
         t = np.broadcast_to(t*self.eqn.dt, [x_hist.shape[0], 1])
         pi, hidden = self.lstm(t, x_hist[:, -1:], hidden)
-        # pi = tf.concat([tf.nn.relu(pi[:, 0:1]), pi[:, 1:2]], axis=-1)
-        pi = tf.nn.sigmoid(pi)
+        pi = self.final_pi_tf(pi)
         return pi.numpy(), hidden
 
 
