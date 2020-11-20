@@ -2,6 +2,7 @@
   "eqn_config": {
     "eqn_name": "Csmp",
     "seed": 123,
+    "fixinit": true,
     "delta": 0.8,
     "T": 2,
     "nt": 60,
