@@ -7,6 +7,7 @@ class LQ(object):
     def __init__(self, eqn_config):
         np.random.seed(seed=eqn_config.seed)
         self.eqn_config = eqn_config
+        self.fixinit = self.eqn_config.fixinit
         self.delta = eqn_config.delta
         self.T = eqn_config.T
         self.nt = eqn_config.nt
@@ -28,49 +29,47 @@ class LQ(object):
         self.G = np.identity(self.dim_x) / self.dim_x / 10
         self.B = np.random.normal(size=(self.dim_x, self.dim_pi), scale=1)
         self.sigma = np.random.normal(size=(self.dim_x, self.dim_w), scale=1)
-        # self.x_init = np.random.normal(size=(self.dim_x, 1)) * -np.arange(self.n_lag+1) * self.dt  # of shape (dx, n_lag+1)
-        self.x_init = 1 * np.arange(1, self.dim_x+1)[:, None]/self.dim_x * -np.arange(self.n_lag+1) * self.dt  # of shape (dx, n_lag+1)
         
         self.Rinv = np.linalg.inv(self.R)
         self.exp_fac = np.exp(self.lambd * self.delta)
         self.exp_array = np.exp(-np.arange(-self.n_lag, 1, 1) * self.dt * self.lambd)
-        self.wgt_x_init = self.exp_array * self.x_init # of shape (dx, n_lag+1)
         self.A2 = self.exp_fac * (self.lambd * np.identity(self.dim_x) + self.A1 + self.exp_fac * self.A3) @ self.A3
         self.Pt, v_integral = self.riccati_soln()
-        y_init = (np.sum(self.wgt_x_init, axis=-1) - 0.5*(self.wgt_x_init[..., 0] + self.wgt_x_init[..., -1])) * self.dt
-        x_common = self.x_init[..., -1] + self.exp_fac * y_init @ self.A3
-        self.value = v_integral + np.sum((x_common @ self.Pt[0]) * x_common, axis=-1)
+        dw_sample, x_init, wgt_x_init = self.sample(4096)
+        y_init = (np.sum(wgt_x_init, axis=-1) - 0.5*(wgt_x_init[..., 0] + wgt_x_init[..., -1])) * self.dt
+        x_common = x_init[..., -1] + self.exp_fac * y_init @ self.A3
+        self.value = v_integral + np.mean(np.sum((x_common @ self.Pt[0]) * x_common, axis=-1))
         np.random.seed(int(time.time()))
     
     def sample(self, num_sample, fixseed=False):
         if fixseed:
             np.random.seed(seed=self.eqn_config.seed)
         dw_sample = normal.rvs(size=[num_sample, self.dim_w, self.nt]) * self.sqrt_dt
-        x_hist = np.repeat(self.x_init[None, :, :], [num_sample], axis=0)
-        wgt_x_hist = np.repeat(self.wgt_x_init[None, :, :], [num_sample], axis=0)
+        if self.fixinit:
+            x_init = 1 * np.arange(1, self.dim_x+1)[:, None]/self.dim_x * -np.arange(self.n_lag+1) * self.dt    # of shape (dx, n_lag+1)
+            wgt_x_init = self.exp_array * x_init    # of shape (dx, n_lag+1)
+            x_init = np.repeat(x_init[None, :, :], [num_sample], axis=0)    # of shape (B, dx, n_lag+1)
+            wgt_x_hist = np.repeat(wgt_x_init[None, :, :], [num_sample], axis=0)    # of shape (B, dx, n_lag+1)
         if fixseed:
             np.random.seed(int(time.time()))
-        return dw_sample, x_hist, wgt_x_hist
+        return dw_sample, x_init, wgt_x_hist
         
-    def simulate(self, num_sample, policy, fixseed=False, hidden_init=None):
-        if fixseed:
-            np.random.seed(seed=self.eqn_config.seed)
-        dw_sample = normal.rvs(size=[num_sample, self.dim_w, self.nt]) * self.sqrt_dt
-        if fixseed:
-            np.random.seed(int(time.time()))
+    def simulate(self, num_sample, policy, fixseed=False, hidden_init_fn=None):
+        dw_sample, x_init, wgt_x_hist = self.sample(num_sample, fixseed)
         x_sample = np.zeros([num_sample, self.dim_x, self.nt+1])
-        x_sample[:, :, 0] = self.x_init[:, -1]
+        x_hist = x_init.copy()
+        x_sample[:, :, 0] = x_hist[:, :, -1]
         pi_sample = np.zeros([num_sample, self.dim_pi, self.nt])
         y_sample = np.zeros_like(x_sample)
         reward = np.zeros([num_sample])
-        hidden = hidden_init # used for LSTM model only
+        if hidden_init_fn is None:
+            hidden = None
+        else:
+            hidden = hidden_init_fn(x_init) # used for LSTM model only
 
         reward = 0
         for t in range(self.nt+1):
-            if t == 0:
-                x_hist = np.repeat(self.x_init[None, :, :], [num_sample], axis=0) # of shape (B, dx, n_lag+1)
-                wgt_x_hist = np.repeat(self.wgt_x_init[None, :, :], [num_sample], axis=0)  # of shape (B, dx, n_lag+1)
-            else:
+            if t > 0:
                 x_hist[:, :, :-1] = x_hist[:, :, 1:]
                 x_hist[:, :, -1] = x_sample[:, :, t]
                 wgt_x_hist[:, :, :-1] = wgt_x_hist[:, :, 1:] * self.exp_array[-2]
@@ -155,6 +154,7 @@ class Csmp(object):
         y_sample = (np.sum(self.wgt_x_init, axis=-1) - 0.5*(self.wgt_x_init[..., 0] + self.wgt_x_init[..., -1])) * self.dt
         x_common = self.x_init[..., -1] + self.a * self.exp_fac * y_sample
         self.value = self.pt[0]**(1-self.gamma) / self.gamma * x_common**(self.gamma)
+        np.random.seed(int(time.time()))
 
     def sample(self, num_sample, fixseed=False):
         if fixseed:
@@ -268,6 +268,7 @@ class POlog(object):
         dw_sample, x_init = self.sample(4096)
         y_init = np.sum(self.exp_array * x_init[:, 1:], axis=-1) * self.dt + self.geometric_sum * x_init[:, 0]
         self.value = np.mean(self.pt[0] + np.log(x_init[:, -1] + self.eta * y_init) / self.beta)
+        np.random.seed(int(time.time()))
 
     def sample(self, num_sample, fixseed=False):
         if fixseed:
@@ -287,8 +288,6 @@ class POlog(object):
 
     def simulate(self, num_sample, policy, fixseed=False, hidden_init_fn=None):
         dw_sample, x_init = self.sample(num_sample, fixseed)
-        if fixseed:
-            np.random.seed(int(time.time()))
         x_sample = np.zeros([num_sample, self.nt+1])
         x_hist = x_init.copy()
         x_sample[:, 0] = x_hist[:, -1]
