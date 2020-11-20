@@ -164,6 +164,15 @@ class Csmp(object):
             wgt_x_init = self.exp_array * x_init   # of shape (n_lag+1,)
             x_init = np.repeat(x_init[None, :], [num_sample], axis=0)   # of shape (B, n_lag+1)
             wgt_x_hist = np.repeat(wgt_x_init[None, :], [num_sample], axis=0)   # of shape (B, n_lag+1)
+        else:
+            x_init = np.zeros([num_sample, self.n_lag+1])
+            x_init[:, 0] = np.random.uniform(5, 10, size=[num_sample,])
+            for t in range(1, self.n_lag+1):
+                x_init[:, t] = x_init[:, t-1] * (1 + 0.03*self.dt + 1*self.sigma*np.random.normal(size=[num_sample]) * self.sqrt_dt)
+            # x_init[:, 0] = np.random.uniform(3, 5, size=[num_sample,])
+            # for t in range(1, self.n_lag+1):
+            #     x_init[:, t] = x_init[:, t-1] * (1 + 0.03*self.dt + 0.5*self.sigma*np.random.normal(size=[num_sample]) * self.sqrt_dt)
+            wgt_x_hist = self.exp_array * x_init
         if fixseed:
             np.random.seed(int(time.time()))
         return dw_sample, x_init, wgt_x_hist

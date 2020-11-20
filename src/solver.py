@@ -143,7 +143,7 @@ class LQSharedFFModel(LQPolicyModel):
         return pi, None
 
     def policy(self, t, x_hist, wgt_x_hist=None, dw_inst=None, hidden=None):
-        if t == 0:
+        if t == 0 and self.eqn.fixinit:
             return self.pi_init.numpy(), None
         else:
             state = x_hist[:, :, -(self.n_lag_state+1):]
@@ -177,13 +177,16 @@ class LQLSTMModel(LQPolicyModel):
 
     def hidden_init_tf(self, x_init):
         num_sample = tf.shape(x_init)[0]
+        self.all_one_vec = tf.ones(shape=tf.stack([num_sample, 1]), dtype=self.net_config.dtype)
         if self.eqn.fixinit:
-            self.all_one_vec = tf.ones(shape=tf.stack([num_sample, 1]), dtype=self.net_config.dtype)
             h = tf.matmul(self.all_one_vec, self.h_init)
             C = tf.matmul(self.all_one_vec, self.C_init)
             hidden = (h, C)
         else:
-            zeros = tf.zeros(shape=[1, self.net_config.dim_h-x_init.shape[-1]])
+            zeros = tf.zeros(
+                shape=[num_sample, self.net_config.dim_h-x_init.shape[-2]],
+                dtype=self.net_config.dtype
+            )
             h = tf.concat([x_init[:, 0:1], zeros], axis=-1)
             C = tf.concat([x_init[:, 0:1], zeros], axis=-1)
             hidden = (h, C)
@@ -202,16 +205,19 @@ class LQLSTMModel(LQPolicyModel):
                 np.broadcast_to(self.C_init.numpy(), [num_sample, self.net_config.dim_h])
             )
         else:
-            zeros = tf.zeros(shape=[1, self.net_config.dim_h-x_init.shape[-1]])
+            zeros = tf.zeros(
+                shape=[num_sample, self.net_config.dim_h-x_init.shape[-2]],
+                dtype=self.net_config.dtype
+            )
             h = tf.concat([x_init[:, 0:1], zeros], axis=-1)
             C = tf.concat([x_init[:, 0:1], zeros], axis=-1)
             hidden = (h, C)
             for t in range(-self.eqn.n_lag, 0):
                 _, hidden = self.lstm(
-                    t*self.eqn.dt*self.all_one_vec,
+                    t*self.eqn.dt*np.ones([num_sample, 1]),
                     x_init[:, :, t+self.eqn.n_lag+1], hidden
                 )
-            return hidden.numpy()
+            return (hidden[0].numpy(), hidden[1].numpy())
 
     def policy_tf(self, training, t, x_hist, hidden=None):
         return self.lstm(t*self.eqn.dt*self.all_one_vec, x_hist[..., -1], hidden)
@@ -379,7 +385,7 @@ class CsmpSharedFFModel(CsmpPolicyModel):
         return pi, None
 
     def policy(self, t, x_hist, wgt_x_hist=None, dw_inst=None, hidden=None):
-        if t == 0:
+        if t == 0 and self.eqn.fixinit:
             return self.pi_init.numpy(), None
         else:
             state = x_hist[:, -(self.n_lag_state+1):]
@@ -413,20 +419,23 @@ class CsmpLSTMModel(CsmpPolicyModel):
 
     def hidden_init_tf(self, x_init):
         num_sample = tf.shape(x_init)[0]
+        self.all_one_vec = tf.ones(shape=tf.stack([num_sample, 1]), dtype=self.net_config.dtype)
         if self.eqn.fixinit:
-            self.all_one_vec = tf.ones(shape=tf.stack([num_sample, 1]), dtype=self.net_config.dtype)
             h = tf.matmul(self.all_one_vec, self.h_init)
             C = tf.matmul(self.all_one_vec, self.C_init)
             hidden = (h, C)
         else:
-            zeros = tf.zeros(shape=[1, self.net_config.dim_h-1])
+            zeros = tf.zeros(
+                shape=[num_sample, self.net_config.dim_h-1],
+                dtype=self.net_config.dtype
+            )
             h = tf.concat([x_init[:, 0:1], zeros], axis=-1)
             C = tf.concat([x_init[:, 0:1], zeros], axis=-1)
             hidden = (h, C)
             for t in range(-self.eqn.n_lag, 0):
                 _, hidden = self.lstm(
                     t*self.eqn.dt*self.all_one_vec,
-                    x_init[:, :, t+self.eqn.n_lag+1], hidden
+                    x_init[:, t+self.eqn.n_lag+1:t+self.eqn.n_lag+2], hidden
                 )
         return hidden
 
@@ -438,16 +447,19 @@ class CsmpLSTMModel(CsmpPolicyModel):
                 np.broadcast_to(self.C_init.numpy(), [num_sample, self.net_config.dim_h])
             )
         else:
-            zeros = tf.zeros(shape=[1, self.net_config.dim_h-1])
+            zeros = tf.zeros(
+                shape=[num_sample, self.net_config.dim_h-1],
+                dtype=self.net_config.dtype
+            )
             h = tf.concat([x_init[:, 0:1], zeros], axis=-1)
             C = tf.concat([x_init[:, 0:1], zeros], axis=-1)
             hidden = (h, C)
             for t in range(-self.eqn.n_lag, 0):
                 _, hidden = self.lstm(
-                    t*self.eqn.dt*self.all_one_vec,
-                    x_init[:, :, t+self.eqn.n_lag+1], hidden
+                    t*self.eqn.dt*np.ones([num_sample, 1]),
+                    x_init[:, t+self.eqn.n_lag+1:t+self.eqn.n_lag+2], hidden
                 )
-            return hidden.numpy()
+            return (hidden[0].numpy(), hidden[1].numpy())
 
     def policy_tf(self, training, t, x_hist, hidden=None):
         pi, hidden = self.lstm(t*self.eqn.dt*self.all_one_vec, x_hist[:, -1:], hidden)
@@ -683,7 +695,7 @@ class POlogLSTMModel(POlogPolicyModel):
                     t*self.eqn.dt*np.ones([num_sample, 1]),
                     x_init[:, t+self.eqn.n_lag+1:t+self.eqn.n_lag+2], hidden
                 )
-            return hidden.numpy()
+            return (hidden[0].numpy(), hidden[1].numpy())
 
     def policy_tf(self, training, t, x_hist, hidden=None):
         pi, hidden = self.lstm(t*self.eqn.dt*self.all_one_vec, x_hist[:, -1:], hidden)
