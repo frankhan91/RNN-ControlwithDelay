@@ -50,6 +50,11 @@ class LQ(object):
             wgt_x_init = self.exp_array * x_init    # of shape (dx, n_lag+1)
             x_init = np.repeat(x_init[None, :, :], [num_sample], axis=0)    # of shape (B, dx, n_lag+1)
             wgt_x_hist = np.repeat(wgt_x_init[None, :, :], [num_sample], axis=0)    # of shape (B, dx, n_lag+1)
+        else:
+            x_init = 1 * np.arange(1, self.dim_x+1)[:, None]/self.dim_x * -np.arange(self.n_lag+1) * self.dt    # of shape (dx, n_lag+1)
+            x_init = np.repeat(x_init[None, :, :], [num_sample], axis=0)    # of shape (B, dx, n_lag+1)
+            x_init += normal.rvs(size=[num_sample, self.dim_x, self.n_lag+1]) * self.sqrt_dt * 0
+            wgt_x_hist = self.exp_array * x_init
         if fixseed:
             np.random.seed(int(time.time()))
         return dw_sample, x_init, wgt_x_hist

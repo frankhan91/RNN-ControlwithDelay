@@ -187,8 +187,8 @@ class LQLSTMModel(LQPolicyModel):
                 shape=[num_sample, self.net_config.dim_h-x_init.shape[-2]],
                 dtype=self.net_config.dtype
             )
-            h = tf.concat([x_init[:, 0:1], zeros], axis=-1)
-            C = tf.concat([x_init[:, 0:1], zeros], axis=-1)
+            h = tf.concat([x_init[:, :, 0], zeros], axis=-1)
+            C = tf.concat([x_init[:, :, 0], zeros], axis=-1)
             hidden = (h, C)
             for t in range(-self.eqn.n_lag, 0):
                 _, hidden = self.lstm(
@@ -209,8 +209,8 @@ class LQLSTMModel(LQPolicyModel):
                 shape=[num_sample, self.net_config.dim_h-x_init.shape[-2]],
                 dtype=self.net_config.dtype
             )
-            h = tf.concat([x_init[:, 0:1], zeros], axis=-1)
-            C = tf.concat([x_init[:, 0:1], zeros], axis=-1)
+            h = tf.concat([x_init[:, :, 0], zeros], axis=-1)
+            C = tf.concat([x_init[:, :, 0], zeros], axis=-1)
             hidden = (h, C)
             for t in range(-self.eqn.n_lag, 0):
                 _, hidden = self.lstm(

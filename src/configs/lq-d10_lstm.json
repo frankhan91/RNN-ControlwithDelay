@@ -2,7 +2,7 @@
   "eqn_config": {
     "eqn_name": "LQ",
     "seed": 123,
-    "fixinit": true,
+    "fixinit": false,
     "delta": 1,
     "T": 1,
     "nt": 40,
