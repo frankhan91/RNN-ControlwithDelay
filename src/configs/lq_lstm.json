@@ -2,7 +2,7 @@
   "eqn_config": {
     "eqn_name": "LQ",
     "seed": 123,
-    "fixinit": true,
+    "fixinit": false,
     "delta": 0.2,
     "T": 1,
     "nt": 40,
@@ -13,10 +13,10 @@
   },
   "net_config": {
     "model_name": "LSTMModel",
-    "dim_h": 30,
-    "lr_values": [5e-3, 1e-3],
-    "lr_boundaries": [8000],
-    "num_iterations": 16000,
+    "dim_h": 40,
+    "lr_values": [5e-2, 5e-3, 5e-4],
+    "lr_boundaries": [8000, 16000],
+    "num_iterations": 24000,
     "batch_size": 128,
     "valid_size": 256,
     "logging_frequency": 200,
