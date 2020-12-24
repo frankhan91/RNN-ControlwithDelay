@@ -14,9 +14,9 @@
   "net_config": {
     "model_name": "LSTMModel",
     "dim_h": 200,
-    "lr_values": [3e-3, 1e-3],
-    "lr_boundaries": [10000],
-    "num_iterations": 20000,
+    "lr_values": [5e-3, 5e-4],
+    "lr_boundaries": [8000],
+    "num_iterations": 16000,
     "batch_size": 128,
     "valid_size": 256,
     "logging_frequency": 200,

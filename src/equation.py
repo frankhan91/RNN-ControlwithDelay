@@ -23,8 +23,8 @@ class LQ(object):
         # assert self.n_lag * self.dt == self.delta, "The time discretization is inconsistent."
         
         tmp1, tmp2 = np.random.normal(size=(self.dim_x, self.dim_x)), np.random.normal(size=(self.dim_x, self.dim_x))
-        self.A1 = (np.identity(self.dim_x) + tmp1*0.1) * 1
-        self.A3 = (np.identity(self.dim_x) + tmp2*0.1) * 5
+        self.A1 = (np.identity(self.dim_x) + (tmp1+tmp1.transpose())*0.1) * 0.5
+        self.A3 = (np.identity(self.dim_x) + (tmp2+tmp2.transpose())*0.1) * 2
         self.Q = np.identity(self.dim_x) / self.dim_x / 10
         self.R = np.identity(self.dim_pi) / self.dim_pi / 10
         self.G = np.identity(self.dim_x) / self.dim_x / 10
@@ -54,7 +54,7 @@ class LQ(object):
         else:
             x_init = 1 * np.arange(1, self.dim_x+1)[:, None]/self.dim_x * -np.arange(self.n_lag+1) * self.dt    # of shape (dx, n_lag+1)
             x_init = np.repeat(x_init[None, :, :], [num_sample], axis=0)    # of shape (B, dx, n_lag+1)
-            x_init += normal.rvs(size=[num_sample, self.dim_x, self.n_lag+1]) * self.sqrt_dt * 0.1
+            x_init += normal.rvs(size=[num_sample, self.dim_x, self.n_lag+1]) * self.sqrt_dt * 1
             wgt_x_hist = self.exp_array * x_init
         if fixseed:
             np.random.seed(int(time.time()))
