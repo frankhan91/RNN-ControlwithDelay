@@ -18,7 +18,7 @@
   "net_config": {
     "model_name": "SharedFFModel",
     "util_penalty": 1e1,
-    "n_lag_state": 60,
+    "n_lag_state": 80,
     "num_hiddens": [96, 96],
     "lr_values": [5e-5, 5e-5],
     "lr_boundaries": [2000],
