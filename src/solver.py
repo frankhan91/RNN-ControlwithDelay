@@ -669,8 +669,12 @@ class POlogLSTMModel(POlogPolicyModel):
             C = tf.matmul(self.all_one_vec, self.C_init)
             hidden = (h, C)
         else:
-            h = x_init[:, 0:1] * np.ones(shape=[1, self.net_config.dim_h])
-            C = x_init[:, 0:1] * np.ones(shape=[1, self.net_config.dim_h])
+            zeros = tf.zeros(
+                shape=[num_sample, self.net_config.dim_h-1],
+                dtype=self.net_config.dtype
+            )
+            h = tf.concat([x_init[:, 0:1], zeros], axis=-1)
+            C = tf.concat([x_init[:, 0:1], zeros], axis=-1)
             hidden = (h, C)
             for t in range(-self.eqn.n_lag, 0):
                 _, hidden = self.lstm(
@@ -687,8 +691,12 @@ class POlogLSTMModel(POlogPolicyModel):
                 np.broadcast_to(self.C_init.numpy(), [num_sample, self.net_config.dim_h])
             )
         else:
-            h = x_init[:, 0:1] * np.ones(shape=[1, self.net_config.dim_h])
-            C = x_init[:, 0:1] * np.ones(shape=[1, self.net_config.dim_h])
+            zeros = tf.zeros(
+                shape=[num_sample, self.net_config.dim_h-1],
+                dtype=self.net_config.dtype
+            )
+            h = tf.concat([x_init[:, 0:1], zeros], axis=-1)
+            C = tf.concat([x_init[:, 0:1], zeros], axis=-1)
             hidden = (h, C)
             for t in range(-self.eqn.n_lag, 0):
                 _, hidden = self.lstm(
