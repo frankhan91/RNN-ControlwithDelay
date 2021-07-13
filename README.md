@@ -3,6 +3,7 @@
 
 ## Training
 
+Under the directory `src`, run the command
 ```
 python main.py --config_path=configs/polog_lstm.json
 ```
@@ -11,12 +12,12 @@ Command-line flags:
 
 * `config_path`: Config path corresponding to the control problem to solve. 
 There are three control problems implemented so far. See [Problems and Configs](#problems-and-configs) section below.
-* `exp_name`: Name of numerical experiment, prefix of logging and output.
+* `exp_name`: Name of numerical experiment, suffix of numpy file output.
 
 
 ## Problems and Configs
 
-`equation.py` and `configs` now support the following three problems, corresponding to examples in Section 4.1, 4.2, and 4.3 of ref [1]:
+`equation.py` and config files under `configs` now support the following three problems, corresponding to three examples in Section 4.1, 4.2, and 4.3 of ref [1]:
 
 * `LQ`: Linear-quadratic problem with delay (3-dimensional or 10-dimensional state variable). 
 * `Csmp`:  Optimal consumption in a delayed financial market.
@@ -32,4 +33,4 @@ Suffix `_lstm` means using long short-term memory (LSTM) networks and `_shff` me
 
 
 ## Reference
-[1] Han, J. and Hu, R. Recurrent neural networks for stochastic control problems with delay, (2021),  [[arXiv]](https://arxiv.org/abs/2101.01385)
+[1] Han, J. and Hu, R. Recurrent neural networks for stochastic control problems with delay, (2021)  [[arXiv]](https://arxiv.org/abs/2101.01385)
