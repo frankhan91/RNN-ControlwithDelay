@@ -18,7 +18,6 @@ flags.DEFINE_string('config_path', 'configs/polog_lstm.json',
 flags.DEFINE_string('exp_name', 'test',
                     """The name of numerical experiments, prefix for logging""")
 FLAGS = flags.FLAGS
-FLAGS.log_dir = './logs'
 
 
 def main(argv):
@@ -46,18 +45,23 @@ def main(argv):
         fixseed=True, hidden_init_fn=sol.model.hidden_init_np
     )
 
-    print(reward.mean(), reward_hat.mean())
-    print(
-        np.sqrt(np.mean((x_sample-xhat_sample)**2)/np.mean(x_sample**2)),
-        np.sqrt(np.mean((pi_sample-pihat_sample)**2)/np.mean(pi_sample**2))
-    )
-    print(reward[:10])
-    print(reward_hat[:10])
-
     prob, nn = ((FLAGS.config_path.split('.')[0]).split('/')[-1]).split('_')
     lag = int(config.eqn_config.delta/config.eqn_config.T*10)
+
+    print('Average reward by the policy discretized from the analytical optimal control: {}'.format(reward.mean()))
+    print('Average reward by the policy approximated by the {} network: {}'.format(nn, reward_hat.mean()))
+    print('Relative difference between the state paths generated from two policies: {}'.format(
+        np.sqrt(np.mean((x_sample-xhat_sample)**2)/np.mean(x_sample**2))
+    ))
+    print('Relative difference between the control paths generated from two policies: {}'.format(
+        np.sqrt(np.mean((pi_sample-pihat_sample)**2)/np.mean(pi_sample**2))
+    ))
+
+    dir = '../data/{}'.format(prob)
+    if not os.path.exists(dir):
+        os.makedirs(dir)
     np.savez(
-        file=os.path.join('../data/{}'.format(prob), '{}_lag{}_test.npz'.format(nn, lag)),
+        file=os.path.join(dir, '{}_lag{}_{}.npz'.format(nn, lag, FLAGS.exp_name)),
         x_sample=x_sample, pi_sample=pi_sample, reward=reward,
         xhat_sample=xhat_sample, pihat_sample=pihat_sample, reward_hat=reward_hat,
         config=json.dumps(config), hist=hist
